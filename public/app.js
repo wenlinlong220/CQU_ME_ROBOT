@@ -1,11 +1,18 @@
+const STATIC_DATA_STORAGE_KEY = "cqu_me_robot_static_data_v1";
+const ADMIN_PASSWORD_STORAGE_KEY = "adminPassword";
+const STATIC_ADMIN_PASSWORD = "admin123";
+
 const state = {
   colleges: [],
   selectedCollegeId: "",
   selectedCollege: null,
   search: "",
   isAdmin: false,
-  adminPassword: sessionStorage.getItem("adminPassword") || ""
+  adminPassword: sessionStorage.getItem(ADMIN_PASSWORD_STORAGE_KEY) || "",
+  usingBackend: false
 };
+
+let staticData = null;
 
 const collegeRows = document.querySelector("#collegeRows");
 const collegeDetail = document.querySelector("#collegeDetail");
@@ -13,13 +20,37 @@ const summaryText = document.querySelector("#summaryText");
 const searchInput = document.querySelector("#searchInput");
 const adminButton = document.querySelector("#adminButton");
 
+function id(prefix) {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function normalizeData(data) {
+  return {
+    colleges: Array.isArray(data?.colleges) ? data.colleges : [],
+    mentors: Array.isArray(data?.mentors) ? data.mentors : [],
+    intentions: Array.isArray(data?.intentions) ? data.intentions : []
+  };
+}
+
+function deadlineTime(value) {
+  if (!value) return Number.MAX_SAFE_INTEGER;
+  const time = new Date(`${value}T00:00:00`).getTime();
+  return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+}
+
 const formatDate = (value) => {
   if (!value) return "未填写";
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit"
-  }).format(new Date(`${value}T00:00:00`));
+  }).format(date);
 };
 
 const escapeHtml = (value = "") =>
@@ -30,9 +61,81 @@ const escapeHtml = (value = "") =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 
-async function api(path, options = {}) {
+function requiredString(value, fieldName) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${fieldName} 不能为空`);
+  }
+  return value.trim();
+}
+
+function optionalString(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function optionalUrl(value, fieldName = "相关链接") {
+  const url = optionalString(value);
+  if (!url) return "";
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return parsed.href;
+    }
+  } catch {
+    // Keep the user-facing validation message consistent.
+  }
+
+  throw new Error(`${fieldName} 必须是 http:// 或 https:// 开头的网址`);
+}
+
+function buildCollegeSummary(data) {
+  return data.colleges
+    .map((college) => {
+      const mentors = data.mentors.filter((mentor) => mentor.collegeId === college.id);
+      const intentions = data.intentions.filter((item) => item.collegeId === college.id);
+
+      return {
+        ...college,
+        mentorCount: mentors.length,
+        intentionCount: intentions.length,
+        directions: [...new Set(mentors.map((mentor) => mentor.direction).filter(Boolean))],
+        interestedStudents: intentions.map((item) => ({
+          studentName: item.studentName,
+          mentorId: item.mentorId,
+          mentorName: mentors.find((mentor) => mentor.id === item.mentorId)?.name || "未指定导师",
+          major: item.major,
+          gradeRank: item.gradeRank,
+          note: item.note,
+          createdAt: item.createdAt
+        }))
+      };
+    })
+    .sort((a, b) => deadlineTime(a.deadline) - deadlineTime(b.deadline));
+}
+
+function getCollegeDetail(data, collegeId) {
+  const college = data.colleges.find((item) => item.id === collegeId);
+  if (!college) throw new Error("学院不存在");
+
+  const mentors = data.mentors
+    .filter((mentor) => mentor.collegeId === college.id)
+    .map((mentor) => ({
+      ...mentor,
+      intentions: data.intentions.filter((item) => item.mentorId === mentor.id)
+    }));
+
+  return {
+    ...college,
+    mentors,
+    unassignedIntentions: data.intentions.filter(
+      (item) => item.collegeId === college.id && !item.mentorId
+    )
+  };
+}
+
+async function requestBackend(path, options = {}) {
   const headers = {
-    "Content-Type": "application/json",
+    ...(options.body ? { "Content-Type": "application/json" } : {}),
     ...(options.headers || {})
   };
 
@@ -44,6 +147,7 @@ async function api(path, options = {}) {
     ...options,
     headers
   });
+
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(payload.message || "请求失败");
@@ -51,8 +155,212 @@ async function api(path, options = {}) {
   return payload;
 }
 
+async function loadStaticData() {
+  if (staticData) return staticData;
+
+  const stored = localStorage.getItem(STATIC_DATA_STORAGE_KEY);
+  if (stored) {
+    staticData = normalizeData(JSON.parse(stored));
+    return staticData;
+  }
+
+  const response = await fetch("data.json", { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("静态数据加载失败");
+  }
+  staticData = normalizeData(await response.json());
+  return staticData;
+}
+
+function saveStaticData() {
+  localStorage.setItem(STATIC_DATA_STORAGE_KEY, JSON.stringify(staticData));
+}
+
+function routeParts(path) {
+  const url = new URL(path, window.location.href);
+  const parts = url.pathname.split("/").filter(Boolean);
+  const apiIndex = parts.lastIndexOf("api");
+  return apiIndex >= 0 ? parts.slice(apiIndex + 1) : parts;
+}
+
+async function localApi(path, options = {}) {
+  const data = await loadStaticData();
+  const method = (options.method || "GET").toUpperCase();
+  const body = options.body ? JSON.parse(options.body) : {};
+  const parts = routeParts(path);
+
+  if (parts[0] === "admin" && parts[1] === "login" && method === "POST") {
+    if ((body.password || "") !== STATIC_ADMIN_PASSWORD) {
+      throw new Error("管理员密码错误");
+    }
+    return { ok: true };
+  }
+
+  if (parts[0] !== "colleges") {
+    throw new Error("请求地址不存在");
+  }
+
+  if (parts.length === 1 && method === "GET") {
+    return clone(buildCollegeSummary(data));
+  }
+
+  if (parts.length === 1 && method === "POST") {
+    const now = new Date().toISOString();
+    const college = {
+      id: id("college"),
+      school: requiredString(body.school, "学校"),
+      college: requiredString(body.college, "学院"),
+      campName: requiredString(body.campName, "夏令营名称"),
+      deadline: requiredString(body.deadline, "截止报名时间"),
+      courses: optionalString(body.courses),
+      reviewMaterials: optionalString(body.reviewMaterials),
+      notes: optionalString(body.notes),
+      relatedLink: optionalUrl(body.relatedLink),
+      createdAt: now,
+      updatedAt: now
+    };
+    data.colleges.push(college);
+    saveStaticData();
+    return clone(college);
+  }
+
+  const collegeId = parts[1];
+  const college = data.colleges.find((item) => item.id === collegeId);
+  if (!college) throw new Error("学院不存在");
+
+  if (parts.length === 2 && method === "GET") {
+    return clone(getCollegeDetail(data, collegeId));
+  }
+
+  if (parts.length === 2 && method === "PUT") {
+    college.school = requiredString(body.school, "学校");
+    college.college = requiredString(body.college, "学院");
+    college.campName = requiredString(body.campName, "夏令营名称");
+    college.deadline = requiredString(body.deadline, "截止报名时间");
+    college.courses = optionalString(body.courses);
+    college.reviewMaterials = optionalString(body.reviewMaterials);
+    college.notes = optionalString(body.notes);
+    college.relatedLink = optionalUrl(body.relatedLink);
+    college.updatedAt = new Date().toISOString();
+    saveStaticData();
+    return clone(college);
+  }
+
+  if (parts.length === 2 && method === "DELETE") {
+    data.colleges = data.colleges.filter((item) => item.id !== collegeId);
+    data.mentors = data.mentors.filter((item) => item.collegeId !== collegeId);
+    data.intentions = data.intentions.filter((item) => item.collegeId !== collegeId);
+    staticData = data;
+    saveStaticData();
+    return { ok: true };
+  }
+
+  if (parts[2] === "mentors" && parts.length === 3 && method === "POST") {
+    const now = new Date().toISOString();
+    const mentor = {
+      id: id("mentor"),
+      collegeId,
+      name: requiredString(body.name, "导师姓名"),
+      title: optionalString(body.title),
+      direction: requiredString(body.direction, "研究方向"),
+      journals: optionalString(body.journals),
+      profile: optionalString(body.profile),
+      createdAt: now,
+      updatedAt: now
+    };
+    data.mentors.push(mentor);
+    college.updatedAt = now;
+    saveStaticData();
+    return clone(mentor);
+  }
+
+  if (parts[2] === "mentors" && parts.length === 4) {
+    const mentorId = parts[3];
+    const mentor = data.mentors.find((item) => item.id === mentorId && item.collegeId === collegeId);
+    if (!mentor) throw new Error("导师不存在");
+
+    if (method === "PUT") {
+      mentor.name = requiredString(body.name, "导师姓名");
+      mentor.title = optionalString(body.title);
+      mentor.direction = requiredString(body.direction, "研究方向");
+      mentor.journals = optionalString(body.journals);
+      mentor.profile = optionalString(body.profile);
+      mentor.updatedAt = new Date().toISOString();
+      college.updatedAt = mentor.updatedAt;
+      saveStaticData();
+      return clone(mentor);
+    }
+
+    if (method === "DELETE") {
+      data.mentors = data.mentors.filter((item) => item.id !== mentorId);
+      data.intentions = data.intentions.map((item) =>
+        item.mentorId === mentorId ? { ...item, mentorId: "" } : item
+      );
+      staticData = data;
+      college.updatedAt = new Date().toISOString();
+      saveStaticData();
+      return { ok: true };
+    }
+  }
+
+  if (parts[2] === "intentions" && parts.length === 3 && method === "POST") {
+    const mentorId = optionalString(body.mentorId);
+    if (mentorId && !data.mentors.some((mentor) => mentor.id === mentorId && mentor.collegeId === collegeId)) {
+      throw new Error("导师不属于当前学院");
+    }
+
+    const intention = {
+      id: id("intent"),
+      collegeId,
+      mentorId,
+      studentName: requiredString(body.studentName, "学生姓名"),
+      major: optionalString(body.major),
+      gradeRank: optionalString(body.gradeRank),
+      contact: optionalString(body.contact),
+      note: optionalString(body.note),
+      createdAt: new Date().toISOString()
+    };
+    data.intentions.push(intention);
+    saveStaticData();
+    return clone(intention);
+  }
+
+  if (parts[2] === "intentions" && parts.length === 4 && method === "DELETE") {
+    const intentionId = parts[3];
+    const beforeCount = data.intentions.length;
+    data.intentions = data.intentions.filter(
+      (item) => !(item.id === intentionId && item.collegeId === collegeId)
+    );
+    if (data.intentions.length === beforeCount) {
+      throw new Error("意向不存在");
+    }
+    staticData = data;
+    saveStaticData();
+    return { ok: true };
+  }
+
+  throw new Error("请求地址不存在");
+}
+
+async function api(path, options = {}) {
+  if (state.usingBackend) {
+    return requestBackend(path, options);
+  }
+  return localApi(path, options);
+}
+
+async function initializeDataSource() {
+  try {
+    await requestBackend("api/colleges");
+    state.usingBackend = true;
+  } catch {
+    state.usingBackend = false;
+    await loadStaticData();
+  }
+}
+
 async function loadColleges(selectFirst = true) {
-  state.colleges = await api("/api/colleges");
+  state.colleges = await api("api/colleges");
   if (selectFirst && !state.selectedCollegeId && state.colleges.length) {
     state.selectedCollegeId = state.colleges[0].id;
   }
@@ -74,7 +382,7 @@ async function loadColleges(selectFirst = true) {
 
 async function loadCollegeDetail(collegeId) {
   state.selectedCollegeId = collegeId;
-  state.selectedCollege = await api(`/api/colleges/${collegeId}`);
+  state.selectedCollege = await api(`api/colleges/${collegeId}`);
   renderCollegeRows();
   renderCollegeDetail();
 }
@@ -106,17 +414,15 @@ function relatedLinkHtml(link, text = "相关链接") {
 
 function renderCollegeRows() {
   const rows = filteredColleges();
-  summaryText.textContent = `${state.colleges.length} 个学院，${state.colleges.reduce(
-    (sum, college) => sum + college.mentorCount,
-    0
-  )} 位导师，${state.colleges.reduce((sum, college) => sum + college.intentionCount, 0)} 条意向`;
+  const mentorCount = state.colleges.reduce((sum, college) => sum + college.mentorCount, 0);
+  const intentionCount = state.colleges.reduce((sum, college) => sum + college.intentionCount, 0);
+  summaryText.textContent = `${state.colleges.length} 个学院，${mentorCount} 位导师，${intentionCount} 条意向`;
 
   collegeRows.innerHTML = rows
     .map((college) => {
-      const daysLeft = Math.ceil(
-        (new Date(`${college.deadline}T23:59:59`) - new Date()) / 86400000
-      );
-      const deadlineClass = daysLeft >= 0 && daysLeft <= 7 ? "deadline soon" : "deadline";
+      const deadline = new Date(`${college.deadline}T23:59:59`);
+      const daysLeft = Math.ceil((deadline - new Date()) / 86400000);
+      const deadlineClass = !Number.isNaN(daysLeft) && daysLeft >= 0 && daysLeft <= 7 ? "deadline soon" : "deadline";
       return `
         <tr class="college-row ${college.id === state.selectedCollegeId ? "active" : ""}" data-id="${college.id}">
           <td>
@@ -138,7 +444,7 @@ function renderCollegeRows() {
             <div class="tag-list">
               ${(college.interestedStudents || [])
                 .slice(0, 4)
-                .map((item) => `<span class="tag">${escapeHtml(item.studentName)} → ${escapeHtml(item.mentorName)}</span>`)
+                .map((item) => `<span class="tag">${escapeHtml(item.studentName)} -> ${escapeHtml(item.mentorName)}</span>`)
                 .join("")}
               ${
                 college.intentionCount > 4
@@ -158,6 +464,38 @@ function renderEmptyDetail() {
   collegeDetail.innerHTML = `
     <h2>选择一个学院查看详情</h2>
     <p>详情页会列出不同方向导师、期刊信息，并支持同学填报意向。</p>
+  `;
+}
+
+function renderUnassignedIntentions(college) {
+  if (!college.unassignedIntentions?.length) return "";
+
+  return `
+    <article class="mentor-card">
+      <div class="mentor-head">
+        <div class="text-block">
+          <h3>未指定导师</h3>
+          <p class="meta">${college.unassignedIntentions.length} 位同学有意向</p>
+        </div>
+      </div>
+      <div class="mentor-body">
+        <ul class="student-list">
+          ${college.unassignedIntentions
+            .map(
+              (item) => `
+                <li>
+                  <div>
+                    <strong>${escapeHtml(item.studentName)} ${item.major ? `· ${escapeHtml(item.major)}` : ""}</strong>
+                    <span class="muted text-block">${escapeHtml([item.gradeRank, item.note].filter(Boolean).join(" · ") || "暂无备注")}</span>
+                  </div>
+                  ${state.isAdmin ? `<button class="text-button danger-text" data-delete-intention="${item.id}">删除</button>` : ""}
+                </li>
+              `
+            )
+            .join("")}
+        </ul>
+      </div>
+    </article>
   `;
 }
 
@@ -194,7 +532,7 @@ function renderCollegeDetail() {
       </div>
       <div class="info-box">
         <span>学院汇总意向</span>
-        <strong>${college.mentors.reduce((sum, mentor) => sum + mentor.intentions.length, 0)} 条</strong>
+        <strong>${college.mentors.reduce((sum, mentor) => sum + mentor.intentions.length, 0) + (college.unassignedIntentions?.length || 0)} 条</strong>
       </div>
       <div class="info-box wide-box">
         <span>备注</span>
@@ -203,10 +541,12 @@ function renderCollegeDetail() {
     </div>
 
     <div class="mentor-list">
+      ${college.mentors.length ? college.mentors.map(renderMentorCard).join("") : ""}
+      ${renderUnassignedIntentions(college)}
       ${
-        college.mentors.length
-          ? college.mentors.map(renderMentorCard).join("")
-          : '<div class="empty-state"><h2>暂无导师</h2><p>可以先新增导师方向和期刊信息。</p></div>'
+        !college.mentors.length && !college.unassignedIntentions?.length
+          ? '<div class="empty-state"><h2>暂无导师</h2><p>可以先新增导师方向和期刊信息。</p></div>'
+          : ""
       }
     </div>
   `;
@@ -267,6 +607,10 @@ function showToast(message) {
   setTimeout(() => toast.remove(), 2600);
 }
 
+function saveMessage(message) {
+  return state.usingBackend ? message : `${message}（已保存到本机浏览器）`;
+}
+
 function updateAdminUi() {
   adminButton.textContent = state.isAdmin ? "退出管理模式" : "管理模式";
   adminButton.classList.toggle("active", state.isAdmin);
@@ -325,44 +669,44 @@ function openMentorEditForm(mentor) {
 }
 
 async function loginAsAdmin(password) {
-  await api("/api/admin/login", {
+  await api("api/admin/login", {
     method: "POST",
     body: JSON.stringify({ password })
   });
   state.adminPassword = password;
   state.isAdmin = true;
-  sessionStorage.setItem("adminPassword", password);
+  sessionStorage.setItem(ADMIN_PASSWORD_STORAGE_KEY, password);
   updateAdminUi();
 }
 
 async function deleteCollege(collegeId) {
   const college = state.selectedCollege;
   if (!college || college.id !== collegeId) return;
-  const ok = window.confirm(`确定删除「${college.school} ${college.college}」吗？该学院下的导师和意向也会一起删除。`);
+  const ok = window.confirm(`确定删除“${college.school} ${college.college}”吗？该学院下的导师和意向也会一起删除。`);
   if (!ok) return;
-  await api(`/api/colleges/${collegeId}`, { method: "DELETE" });
+  await api(`api/colleges/${collegeId}`, { method: "DELETE" });
   state.selectedCollegeId = "";
   state.selectedCollege = null;
   await loadColleges();
-  showToast("学院已删除");
+  showToast(saveMessage("学院已删除"));
 }
 
 async function deleteMentor(mentorId) {
   const mentor = state.selectedCollege?.mentors.find((item) => item.id === mentorId);
   if (!mentor) return;
-  const ok = window.confirm(`确定删除导师「${mentor.name}」吗？该导师下的意向会保留为未指定导师。`);
+  const ok = window.confirm(`确定删除导师“${mentor.name}”吗？该导师下的意向会保留为未指定导师。`);
   if (!ok) return;
-  await api(`/api/colleges/${state.selectedCollege.id}/mentors/${mentorId}`, { method: "DELETE" });
+  await api(`api/colleges/${state.selectedCollege.id}/mentors/${mentorId}`, { method: "DELETE" });
   await loadColleges(false);
-  showToast("导师已删除");
+  showToast(saveMessage("导师已删除"));
 }
 
 async function deleteIntention(intentionId) {
   const ok = window.confirm("确定删除这条意向填报吗？");
   if (!ok) return;
-  await api(`/api/colleges/${state.selectedCollege.id}/intentions/${intentionId}`, { method: "DELETE" });
+  await api(`api/colleges/${state.selectedCollege.id}/intentions/${intentionId}`, { method: "DELETE" });
   await loadColleges(false);
-  showToast("意向已删除");
+  showToast(saveMessage("意向已删除"));
 }
 
 document.addEventListener("click", async (event) => {
@@ -441,7 +785,7 @@ adminButton.addEventListener("click", () => {
   if (state.isAdmin) {
     state.isAdmin = false;
     state.adminPassword = "";
-    sessionStorage.removeItem("adminPassword");
+    sessionStorage.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
     updateAdminUi();
     showToast("已退出管理模式");
     return;
@@ -476,11 +820,11 @@ document.querySelector("#collegeForm").addEventListener("submit", async (event) 
 
   try {
     const college = collegeId
-      ? await api(`/api/colleges/${collegeId}`, {
+      ? await api(`api/colleges/${collegeId}`, {
           method: "PUT",
           body: JSON.stringify(payload)
         })
-      : await api("/api/colleges", {
+      : await api("api/colleges", {
           method: "POST",
           body: JSON.stringify(payload)
         });
@@ -489,7 +833,7 @@ document.querySelector("#collegeForm").addEventListener("submit", async (event) 
     document.querySelector("#collegeModal").close();
     state.selectedCollegeId = college.id;
     await loadColleges(false);
-    showToast(collegeId ? "学院信息已修改" : "学院已新增");
+    showToast(saveMessage(collegeId ? "学院信息已修改" : "学院已新增"));
   } catch (error) {
     showToast(error.message);
   }
@@ -505,11 +849,11 @@ document.querySelector("#mentorForm").addEventListener("submit", async (event) =
 
   try {
     await (mentorId
-      ? api(`/api/colleges/${collegeId}/mentors/${mentorId}`, {
+      ? api(`api/colleges/${collegeId}/mentors/${mentorId}`, {
           method: "PUT",
           body: JSON.stringify(payload)
         })
-      : api(`/api/colleges/${collegeId}/mentors`, {
+      : api(`api/colleges/${collegeId}/mentors`, {
           method: "POST",
           body: JSON.stringify(payload)
         }));
@@ -517,7 +861,7 @@ document.querySelector("#mentorForm").addEventListener("submit", async (event) =
     form.reset();
     document.querySelector("#mentorModal").close();
     await loadColleges(false);
-    showToast(mentorId ? "导师信息已修改" : "导师已新增");
+    showToast(saveMessage(mentorId ? "导师信息已修改" : "导师已新增"));
   } catch (error) {
     showToast(error.message);
   }
@@ -529,27 +873,28 @@ document.querySelector("#intentionForm").addEventListener("submit", async (event
   const payload = formToJson(form);
 
   try {
-    await api(`/api/colleges/${payload.collegeId}/intentions`, {
+    await api(`api/colleges/${payload.collegeId}/intentions`, {
       method: "POST",
       body: JSON.stringify(payload)
     });
     form.reset();
     document.querySelector("#intentionModal").close();
     await loadColleges(false);
-    showToast("意向已提交，并汇总到学院总表");
+    showToast(saveMessage("意向已提交"));
   } catch (error) {
     showToast(error.message);
   }
 });
 
 (async function init() {
+  await initializeDataSource();
   if (state.adminPassword) {
     try {
       await loginAsAdmin(state.adminPassword);
     } catch {
       state.adminPassword = "";
       state.isAdmin = false;
-      sessionStorage.removeItem("adminPassword");
+      sessionStorage.removeItem(ADMIN_PASSWORD_STORAGE_KEY);
     }
   }
   updateAdminUi();
