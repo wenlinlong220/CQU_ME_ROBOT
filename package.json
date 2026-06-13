@@ -1,0 +1,17 @@
+{
+  "name": "recommendation-camp-helper",
+  "version": "1.0.0",
+  "private": true,
+  "description": "推免夏令营学院、导师与意向填报辅助系统",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

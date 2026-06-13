@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>推免夏令营辅助系统</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>推免夏令营辅助系统</h1>
+        <p>汇总学校学院夏令营、复习资料、导师方向与同学意向。</p>
+      </div>
+      <div class="topbar-actions">
+        <button class="secondary-button admin-button" id="adminButton" type="button">管理模式</button>
+        <button class="primary-button" data-open-modal="collegeModal">新增学院</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel list-panel" aria-labelledby="collegeHeading">
+        <div class="panel-header">
+          <div>
+            <h2 id="collegeHeading">学校学院总表</h2>
+            <span id="summaryText">正在加载...</span>
+          </div>
+          <input id="searchInput" type="search" placeholder="搜索学校、学院、方向" />
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>学校学院</th>
+                <th>夏令营</th>
+                <th>截止报名</th>
+                <th>专业课 / 复习资料</th>
+                <th>导师 / 意向</th>
+              </tr>
+            </thead>
+            <tbody id="collegeRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel detail-panel" aria-live="polite">
+        <div id="collegeDetail" class="empty-state">
+          <h2>选择一个学院查看详情</h2>
+          <p>详情页会列出不同方向导师、期刊信息，并支持同学填报意向。</p>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="adminModal">
+      <form class="modal-form" id="adminForm" method="dialog">
+        <div class="modal-header">
+          <h2>管理员登录</h2>
+          <button class="icon-button" type="button" data-close-modal="adminModal" aria-label="关闭">×</button>
+        </div>
+        <label>管理员密码<input name="password" type="password" required placeholder="输入管理员密码" /></label>
+        <button class="primary-button" type="submit">进入管理模式</button>
+      </form>
+    </dialog>
+
+    <dialog id="collegeModal">
+      <form class="modal-form" id="collegeForm" method="dialog">
+        <div class="modal-header">
+          <h2 id="collegeModalTitle">新增学校学院</h2>
+          <button class="icon-button" type="button" data-close-modal="collegeModal" aria-label="关闭">×</button>
+        </div>
+        <input type="hidden" name="collegeId" />
+        <label>学校<input name="school" required placeholder="例如：重庆大学" /></label>
+        <label>学院<input name="college" required placeholder="例如：机械与运载工程学院" /></label>
+        <label>夏令营名称<input name="campName" required placeholder="优秀大学生夏令营" /></label>
+        <label>截止报名时间<input name="deadline" required type="date" /></label>
+        <label>专业课<textarea name="courses" rows="2" placeholder="机械设计、自动控制原理"></textarea></label>
+        <label>面试复习资料<textarea name="reviewMaterials" rows="2" placeholder="资料链接、题库、经验贴"></textarea></label>
+        <label>相关链接<input name="relatedLink" type="url" placeholder="https://example.edu/notice.htm" /></label>
+        <label>备注<textarea name="notes" rows="2" placeholder="官网链接或补充说明"></textarea></label>
+        <button class="primary-button" id="collegeSubmitButton" type="submit">保存学院</button>
+      </form>
+    </dialog>
+
+    <dialog id="mentorModal">
+      <form class="modal-form" id="mentorForm" method="dialog">
+        <div class="modal-header">
+          <h2 id="mentorModalTitle">新增导师</h2>
+          <button class="icon-button" type="button" data-close-modal="mentorModal" aria-label="关闭">×</button>
+        </div>
+        <input type="hidden" name="collegeId" />
+        <input type="hidden" name="mentorId" />
+        <label>导师姓名<input name="name" required placeholder="例如：王老师" /></label>
+        <label>职称<input name="title" placeholder="教授 / 副教授 / 研究员" /></label>
+        <label>研究方向<textarea name="direction" required rows="2" placeholder="机器人控制、智能制造、机构学"></textarea></label>
+        <label>最新期刊 / 代表期刊<textarea name="journals" rows="2" placeholder="IEEE T-RO、Automatica、机械工程学报"></textarea></label>
+        <label>补充介绍<textarea name="profile" rows="3" placeholder="课题组方向、招生偏好、官网链接"></textarea></label>
+        <button class="primary-button" id="mentorSubmitButton" type="submit">保存导师</button>
+      </form>
+    </dialog>
+
+    <dialog id="intentionModal">
+      <form class="modal-form" id="intentionForm" method="dialog">
+        <div class="modal-header">
+          <h2>填报意向导师</h2>
+          <button class="icon-button" type="button" data-close-modal="intentionModal" aria-label="关闭">×</button>
+        </div>
+        <input type="hidden" name="collegeId" />
+        <input type="hidden" name="mentorId" />
+        <label>意向导师<input name="mentorName" disabled /></label>
+        <label>姓名<input name="studentName" required placeholder="你的姓名" /></label>
+        <label>专业<input name="major" placeholder="机器人工程 / 机械工程" /></label>
+        <label>排名<input name="gradeRank" placeholder="例如：前 10%" /></label>
+        <label>联系方式<input name="contact" placeholder="邮箱 / 微信 / 电话" /></label>
+        <label>备注<textarea name="note" rows="3" placeholder="感兴趣方向、已读论文、想咨询的问题"></textarea></label>
+        <button class="primary-button" type="submit">提交意向</button>
+      </form>
+    </dialog>
+
+    <template id="studentTemplate">
+      <li>
+        <strong></strong>
+        <span></span>
+      </li>
+    </template>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
