@@ -1,6 +1,7 @@
-const STATIC_DATA_STORAGE_KEY = "cqu_me_robot_static_data_v1";
+const STATIC_DATA_STORAGE_KEY = "cqu_me_robot_static_data_v2";
 const ADMIN_PASSWORD_STORAGE_KEY = "adminPassword";
 const STATIC_ADMIN_PASSWORD = "admin123";
+const GENERATED_SOURCE = "mentor-evaluation-2025";
 
 const state = {
   colleges: [],
@@ -30,9 +31,17 @@ function clone(value) {
 
 function normalizeData(data) {
   return {
-    colleges: Array.isArray(data?.colleges) ? data.colleges : [],
+    colleges: Array.isArray(data?.colleges) ? data.colleges.map(normalizeCollege) : [],
     mentors: Array.isArray(data?.mentors) ? data.mentors : [],
     intentions: Array.isArray(data?.intentions) ? data.intentions : []
+  };
+}
+
+function normalizeCollege(college) {
+  const campName = college?.campName || "";
+  return {
+    ...college,
+    programType: college?.programType || (campName.includes("预推免") ? "预推免" : "夏令营")
   };
 }
 
@@ -40,6 +49,29 @@ function deadlineTime(value) {
   if (!value) return Number.MAX_SAFE_INTEGER;
   const time = new Date(`${value}T00:00:00`).getTime();
   return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+}
+
+function programRank(type) {
+  return { 夏令营: 1, 预推免: 2, 导师评价: 3 }[type] || 9;
+}
+
+function isMentorEvaluation(college) {
+  return college?.programType === "导师评价" || college?.source === "mentor-evaluation-2025";
+}
+
+function sourceLabel(college) {
+  if (college?.schoolLevel) return college.schoolLevel;
+  if (college?.school?.includes("中国科学院") || college?.school?.includes("中科院")) return "中科院";
+  return "";
+}
+
+function badgeHtml(text, tone = "") {
+  if (!text) return "";
+  return `<span class="category-badge ${tone}">${escapeHtml(text)}</span>`;
+}
+
+function formatRating(value) {
+  return typeof value === "number" ? value.toFixed(2).replace(/\.?0+$/, "") : "";
 }
 
 const formatDate = (value) => {
@@ -93,12 +125,20 @@ function buildCollegeSummary(data) {
     .map((college) => {
       const mentors = data.mentors.filter((mentor) => mentor.collegeId === college.id);
       const intentions = data.intentions.filter((item) => item.collegeId === college.id);
+      const directionKeywords = mentors.flatMap((mentor) => mentor.keywords || []);
 
       return {
         ...college,
         mentorCount: mentors.length,
         intentionCount: intentions.length,
-        directions: [...new Set(mentors.map((mentor) => mentor.direction).filter(Boolean))],
+        directions: [
+          ...new Set([
+            ...(Array.isArray(college.keywords) ? college.keywords : []),
+            ...directionKeywords,
+            ...mentors.map((mentor) => mentor.direction).filter(Boolean)
+          ])
+        ],
+        mentorNames: mentors.map((mentor) => mentor.name).filter(Boolean),
         interestedStudents: intentions.map((item) => ({
           studentName: item.studentName,
           mentorId: item.mentorId,
@@ -110,7 +150,13 @@ function buildCollegeSummary(data) {
         }))
       };
     })
-    .sort((a, b) => deadlineTime(a.deadline) - deadlineTime(b.deadline));
+    .sort(
+      (a, b) =>
+        a.school.localeCompare(b.school, "zh-CN") ||
+        a.college.localeCompare(b.college, "zh-CN") ||
+        programRank(a.programType) - programRank(b.programType) ||
+        deadlineTime(a.deadline) - deadlineTime(b.deadline)
+    );
 }
 
 function getCollegeDetail(data, collegeId) {
@@ -210,6 +256,7 @@ async function localApi(path, options = {}) {
       id: id("college"),
       school: requiredString(body.school, "学校"),
       college: requiredString(body.college, "学院"),
+      programType: optionalString(body.programType) || "夏令营",
       campName: requiredString(body.campName, "夏令营名称"),
       deadline: requiredString(body.deadline, "截止报名时间"),
       courses: optionalString(body.courses),
@@ -235,6 +282,7 @@ async function localApi(path, options = {}) {
   if (parts.length === 2 && method === "PUT") {
     college.school = requiredString(body.school, "学校");
     college.college = requiredString(body.college, "学院");
+    college.programType = optionalString(body.programType) || college.programType || "夏令营";
     college.campName = requiredString(body.campName, "夏令营名称");
     college.deadline = requiredString(body.deadline, "截止报名时间");
     college.courses = optionalString(body.courses);
@@ -399,7 +447,10 @@ function filteredColleges() {
       college.reviewMaterials,
       college.notes,
       college.relatedLink,
-      college.directions?.join(" ")
+      college.programType,
+      college.schoolLevel,
+      college.directions?.join(" "),
+      college.mentorNames?.join(" ")
     ]
       .join(" ")
       .toLowerCase();
@@ -416,8 +467,106 @@ function renderCollegeRows() {
   const rows = filteredColleges();
   const mentorCount = state.colleges.reduce((sum, college) => sum + college.mentorCount, 0);
   const intentionCount = state.colleges.reduce((sum, college) => sum + college.intentionCount, 0);
-  summaryText.textContent = `${state.colleges.length} 个学院，${mentorCount} 位导师，${intentionCount} 条意向`;
+  const schoolCount = new Set(state.colleges.map((college) => college.school)).size;
+  const schoolCollegeCount = new Set(state.colleges.map((college) => `${college.school}|${college.college}`)).size;
+  summaryText.textContent = `${schoolCount} 所学校，${schoolCollegeCount} 个学院，${mentorCount} 位导师，${intentionCount} 条意向`;
 
+  const groupedRows = rows.reduce((groups, college) => {
+    if (!groups.has(college.school)) groups.set(college.school, []);
+    groups.get(college.school).push(college);
+    return groups;
+  }, new Map());
+
+  collegeRows.innerHTML = [...groupedRows.entries()]
+    .map(([school, colleges]) => {
+      const schoolMentorCount = colleges.reduce((sum, college) => sum + college.mentorCount, 0);
+      const schoolCollegeCount = new Set(colleges.map((college) => college.college)).size;
+      const schoolLevel = colleges.map(sourceLabel).find(Boolean);
+      const schoolHeader = `
+        <tr class="school-row">
+          <td colspan="5">
+            <div class="school-row-content">
+              <strong>${escapeHtml(school)}</strong>
+              <span>${schoolCollegeCount} 个学院 · ${schoolMentorCount} 位导师</span>
+              ${badgeHtml(schoolLevel, "school-level")}
+            </div>
+          </td>
+        </tr>
+      `;
+
+      const collegeRowsHtml = colleges.map((college) => {
+      const deadline = new Date(`${college.deadline}T23:59:59`);
+      const daysLeft = Math.ceil((deadline - new Date()) / 86400000);
+      const deadlineClass = !Number.isNaN(daysLeft) && daysLeft >= 0 && daysLeft <= 7 ? "deadline soon" : "deadline";
+      const evaluation = isMentorEvaluation(college);
+      const keywordTags = (college.keywords || college.directions || []).slice(0, 5);
+      const rating = formatRating(college.averageRating);
+      return `
+        <tr class="college-row ${college.id === state.selectedCollegeId ? "active" : ""}" data-id="${college.id}">
+          <td>
+            <div class="college-name">
+              <strong>${escapeHtml(college.college)}</strong>
+              <div class="badge-row">
+                ${badgeHtml(college.programType, evaluation ? "evaluation" : "")}
+                ${badgeHtml(sourceLabel(college), "school-level")}
+              </div>
+            </div>
+          </td>
+          <td>
+            <strong>${escapeHtml(college.campName)}</strong>
+            ${evaluation ? `<div class="muted">${escapeHtml(college.sourceYear || "2025")} 年关键词聚合</div>` : ""}
+          </td>
+          <td>
+            ${
+              evaluation
+                ? `<span class="deadline neutral">${college.recordCount || 0} 条记录</span>`
+                : `<span class="${deadlineClass}">${formatDate(college.deadline)}</span>`
+            }
+          </td>
+          <td>
+            <strong>${escapeHtml(college.courses || "待补充")}</strong>
+            <div class="muted text-block">${escapeHtml(college.reviewMaterials || "待补充")}</div>
+            <div class="tag-list">
+              ${keywordTags.map((keyword) => `<span class="tag">${escapeHtml(keyword)}</span>`).join("")}
+            </div>
+          </td>
+          <td>
+            <strong>${college.mentorCount} 位导师</strong>
+            ${
+              evaluation
+                ? `<div class="muted">${rating ? `平均评分 ${rating}` : "评分暂无"}</div>`
+                : `<div class="muted">${college.intentionCount} 条意向填报</div>`
+            }
+            <div class="tag-list">
+              ${
+                evaluation
+                  ? (college.mentorNames || [])
+                      .slice(0, 4)
+                      .map((name) => `<span class="tag">${escapeHtml(name)}</span>`)
+                      .join("")
+                  : (college.interestedStudents || [])
+                      .slice(0, 4)
+                      .map((item) => `<span class="tag">${escapeHtml(item.studentName)} -> ${escapeHtml(item.mentorName)}</span>`)
+                      .join("")
+              }
+              ${
+                !evaluation && college.intentionCount > 4
+                  ? `<span class="tag">另 ${college.intentionCount - 4} 条</span>`
+                  : ""
+              }
+            </div>
+          </td>
+        </tr>
+      `;
+      }).join("");
+
+      return schoolHeader + collegeRowsHtml;
+    })
+    .join("");
+}
+
+function renderLegacyCollegeRows() {
+  const rows = filteredColleges();
   collegeRows.innerHTML = rows
     .map((college) => {
       const deadline = new Date(`${college.deadline}T23:59:59`);
@@ -502,50 +651,65 @@ function renderUnassignedIntentions(college) {
 function renderCollegeDetail() {
   const college = state.selectedCollege;
   if (!college) return renderEmptyDetail();
+  const evaluation = isMentorEvaluation(college);
+  const keywords = (college.keywords || college.directions || []).slice(0, 10);
+  const averageRating = formatRating(college.averageRating);
+  const recordCount = college.recordCount || college.mentors.reduce((sum, mentor) => sum + mentor.intentions.length, 0);
 
   collegeDetail.className = "detail-content";
   collegeDetail.innerHTML = `
     <div class="detail-heading">
       <div class="text-block">
         <h2>${escapeHtml(college.school)} ${escapeHtml(college.college)}</h2>
-        <p class="meta">${escapeHtml(college.campName)} · 截止 ${formatDate(college.deadline)}</p>
+        <p class="meta">
+          ${escapeHtml(college.programType || "夏令营")} · ${escapeHtml(college.campName)}
+          ${evaluation ? ` · ${recordCount} 条记录${averageRating ? ` · 平均 ${averageRating}` : ""}` : ` · 截止 ${formatDate(college.deadline)}`}
+        </p>
       </div>
       <div class="button-row">
-        ${state.isAdmin ? `<button class="secondary-button" data-edit-college="${college.id}">编辑学院</button>` : ""}
-        ${state.isAdmin ? `<button class="danger-button" data-delete-college="${college.id}">删除学院</button>` : ""}
-        <button class="secondary-button" data-add-mentor="${college.id}">新增导师</button>
+        ${!evaluation && state.isAdmin ? `<button class="secondary-button" data-edit-college="${college.id}">编辑学院</button>` : ""}
+        ${!evaluation && state.isAdmin ? `<button class="danger-button" data-delete-college="${college.id}">删除学院</button>` : ""}
+        ${!evaluation ? `<button class="secondary-button" data-add-mentor="${college.id}">新增导师</button>` : ""}
       </div>
     </div>
 
     <div class="info-grid">
       <div class="info-box">
-        <span>专业课</span>
+        <span>${evaluation ? "命中关键词" : "专业课"}</span>
         <strong class="text-block">${escapeHtml(college.courses || "待补充")}</strong>
       </div>
       <div class="info-box">
-        <span>面试复习资料</span>
+        <span>${evaluation ? "学校层级" : "面试复习资料"}</span>
         <strong class="text-block">${escapeHtml(college.reviewMaterials || "待补充")}</strong>
       </div>
       <div class="info-box">
-        <span>相关链接</span>
-        <strong class="text-block">${relatedLinkHtml(college.relatedLink, "打开学院通知")}</strong>
+        <span>${evaluation ? "记录规模" : "相关链接"}</span>
+        <strong class="text-block">${evaluation ? `${recordCount} 条记录` : relatedLinkHtml(college.relatedLink, "打开学院通知")}</strong>
       </div>
       <div class="info-box">
-        <span>学院汇总意向</span>
-        <strong>${college.mentors.reduce((sum, mentor) => sum + mentor.intentions.length, 0) + (college.unassignedIntentions?.length || 0)} 条</strong>
+        <span>${evaluation ? "平均评分" : "学院汇总意向"}</span>
+        <strong>${evaluation ? (averageRating || "暂无") : `${college.mentors.reduce((sum, mentor) => sum + mentor.intentions.length, 0) + (college.unassignedIntentions?.length || 0)} 条`}</strong>
       </div>
       <div class="info-box wide-box">
-        <span>备注</span>
+        <span>${evaluation ? "来源 / 备注" : "备注"}</span>
         <strong class="text-block">${escapeHtml(college.notes || "暂无")}</strong>
       </div>
     </div>
 
+    ${
+      evaluation
+        ? `<div class="tag-list">${keywords.map((keyword) => `<span class="tag">${escapeHtml(keyword)}</span>`).join("")}</div>`
+        : ""
+    }
+
     <div class="mentor-list">
       ${college.mentors.length ? college.mentors.map(renderMentorCard).join("") : ""}
-      ${renderUnassignedIntentions(college)}
+      ${!evaluation ? renderUnassignedIntentions(college) : ""}
       ${
-        !college.mentors.length && !college.unassignedIntentions?.length
+        !college.mentors.length && !college.unassignedIntentions?.length && !evaluation
           ? '<div class="empty-state"><h2>暂无导师</h2><p>可以先新增导师方向和期刊信息。</p></div>'
+          : evaluation && !college.mentors.length
+            ? '<div class="empty-state"><h2>暂无导师记录</h2><p>这个学院暂时没有匹配到导师评价条目。</p></div>'
           : ""
       }
     </div>
@@ -553,43 +717,49 @@ function renderCollegeDetail() {
 }
 
 function renderMentorCard(mentor) {
-  const students = mentor.intentions.length
-    ? mentor.intentions
-        .map(
-          (item) => `
-            <li>
-              <div>
-                <strong>${escapeHtml(item.studentName)} ${item.major ? `· ${escapeHtml(item.major)}` : ""}</strong>
-                <span class="muted text-block">${escapeHtml([item.gradeRank, item.note].filter(Boolean).join(" · ") || "暂无备注")}</span>
-              </div>
-              ${state.isAdmin ? `<button class="text-button danger-text" data-delete-intention="${item.id}">删除</button>` : ""}
-            </li>
-          `
-        )
-        .join("")
-    : '<li><span class="muted">暂无同学填报</span></li>';
+  const evaluation = mentor.source === GENERATED_SOURCE || mentor.source === "mentor-evaluation-2025";
+  const students = evaluation
+    ? ""
+    : mentor.intentions.length
+      ? mentor.intentions
+          .map(
+            (item) => `
+              <li>
+                <div>
+                  <strong>${escapeHtml(item.studentName)} ${item.major ? `· ${escapeHtml(item.major)}` : ""}</strong>
+                  <span class="muted text-block">${escapeHtml([item.gradeRank, item.note].filter(Boolean).join(" · ") || "暂无备注")}</span>
+                </div>
+                ${state.isAdmin ? `<button class="text-button danger-text" data-delete-intention="${item.id}">删除</button>` : ""}
+              </li>
+            `
+          )
+          .join("")
+      : '<li><span class="muted">暂无同学填报</span></li>';
 
   return `
     <article class="mentor-card">
       <div class="mentor-head">
         <div class="text-block">
           <h3>${escapeHtml(mentor.name)} ${mentor.title ? `<span class="muted">${escapeHtml(mentor.title)}</span>` : ""}</h3>
-          <p class="meta">${mentor.intentions.length} 位同学有意向</p>
+          <p class="meta">
+            ${
+              evaluation
+                ? `${mentor.recordCount || mentor.intentions.length || 0} 条记录${mentor.averageRating ? ` · 平均 ${formatRating(mentor.averageRating)}` : ""}`
+                : `${mentor.intentions.length} 位同学有意向`
+            }
+          </p>
         </div>
         <div class="button-row">
-          ${state.isAdmin ? `<button class="secondary-button" data-edit-mentor="${mentor.id}">编辑导师</button>` : ""}
-          ${state.isAdmin ? `<button class="danger-button" data-delete-mentor="${mentor.id}">删除导师</button>` : ""}
-          <button class="primary-button" data-intent-college="${mentor.collegeId}" data-intent-mentor="${mentor.id}" data-intent-name="${escapeHtml(mentor.name)}">填报意向</button>
+          ${!evaluation && state.isAdmin ? `<button class="secondary-button" data-edit-mentor="${mentor.id}">编辑导师</button>` : ""}
+          ${!evaluation && state.isAdmin ? `<button class="danger-button" data-delete-mentor="${mentor.id}">删除导师</button>` : ""}
+          ${!evaluation ? `<button class="primary-button" data-intent-college="${mentor.collegeId}" data-intent-mentor="${mentor.id}" data-intent-name="${escapeHtml(mentor.name)}">填报意向</button>` : ""}
         </div>
       </div>
       <div class="mentor-body">
         <div class="text-block"><strong>方向：</strong>${escapeHtml(mentor.direction)}</div>
         <div class="text-block"><strong>期刊：</strong>${escapeHtml(mentor.journals || "待补充")}</div>
         <div class="text-block"><strong>介绍：</strong>${escapeHtml(mentor.profile || "待补充")}</div>
-        <div>
-          <strong>当前意向同学：</strong>
-          <ul class="student-list">${students}</ul>
-        </div>
+        ${evaluation ? "" : `<div><strong>当前意向同学：</strong><ul class="student-list">${students}</ul></div>`}
       </div>
     </article>
   `;
@@ -621,6 +791,7 @@ function openCollegeCreateForm() {
   const form = document.querySelector("#collegeForm");
   form.reset();
   form.elements.collegeId.value = "";
+  form.elements.programType.value = "夏令营";
   document.querySelector("#collegeModalTitle").textContent = "新增学校学院";
   document.querySelector("#collegeSubmitButton").textContent = "保存学院";
   document.querySelector("#collegeModal").showModal();
@@ -632,6 +803,7 @@ function openCollegeEditForm(college) {
   form.elements.collegeId.value = college.id;
   form.elements.school.value = college.school || "";
   form.elements.college.value = college.college || "";
+  form.elements.programType.value = college.programType || "夏令营";
   form.elements.campName.value = college.campName || "";
   form.elements.deadline.value = college.deadline || "";
   form.elements.courses.value = college.courses || "";

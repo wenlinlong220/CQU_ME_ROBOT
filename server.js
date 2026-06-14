@@ -6,10 +6,13 @@ const crypto = require("crypto");
 const app = express();
 const DEFAULT_PORT = Number(process.env.PORT) || 3000;
 const MAX_PORT_ATTEMPTS = 20;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
+const IS_PUBLIC_RUNTIME = Boolean(process.env.RENDER || process.env.NODE_ENV === "production");
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || (IS_PUBLIC_RUNTIME ? "" : "admin123");
+const BUNDLED_DATA_FILE = path.join(__dirname, "data.json");
 const DATA_FILE = process.env.DATA_FILE
   ? path.resolve(process.env.DATA_FILE)
   : path.join(process.env.DATA_DIR || __dirname, "data.json");
+let dataMutationQueue = Promise.resolve();
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -21,16 +24,16 @@ function id(prefix) {
 async function readData() {
   try {
     const raw = await fs.readFile(DATA_FILE, "utf8");
-    const data = JSON.parse(raw);
+    const data = normalizeData(JSON.parse(raw));
     if (!data.colleges?.length && !data.mentors?.length && !data.intentions?.length) {
-      const seed = createSeedData();
+      const seed = await loadInitialData();
       await writeData(seed);
       return seed;
     }
     return data;
   } catch (error) {
     if (error.code === "ENOENT") {
-      const seed = createSeedData();
+      const seed = await loadInitialData();
       await writeData(seed);
       return seed;
     }
@@ -40,7 +43,49 @@ async function readData() {
 
 async function writeData(data) {
   await fs.mkdir(path.dirname(DATA_FILE), { recursive: true });
-  await fs.writeFile(DATA_FILE, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+  const tempFile = `${DATA_FILE}.${process.pid}.tmp`;
+  await fs.writeFile(tempFile, `${JSON.stringify(normalizeData(data), null, 2)}\n`, "utf8");
+  await fs.rename(tempFile, DATA_FILE);
+}
+
+function updateData(mutator) {
+  const run = dataMutationQueue.then(async () => {
+    const data = await readData();
+    const result = await mutator(data);
+    await writeData(data);
+    return result;
+  });
+  dataMutationQueue = run.catch(() => {});
+  return run;
+}
+
+function normalizeData(data) {
+  return {
+    colleges: Array.isArray(data?.colleges) ? data.colleges.map(normalizeCollege) : [],
+    mentors: Array.isArray(data?.mentors) ? data.mentors : [],
+    intentions: Array.isArray(data?.intentions) ? data.intentions : []
+  };
+}
+
+function normalizeCollege(college) {
+  const campName = college?.campName || "";
+  return {
+    ...college,
+    programType: college?.programType || (campName.includes("预推免") ? "预推免" : "夏令营")
+  };
+}
+
+async function loadInitialData() {
+  if (path.resolve(DATA_FILE) !== path.resolve(BUNDLED_DATA_FILE)) {
+    try {
+      const raw = await fs.readFile(BUNDLED_DATA_FILE, "utf8");
+      return normalizeData(JSON.parse(raw));
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
+
+  return createSeedData();
 }
 
 function createSeedData() {
@@ -261,6 +306,7 @@ app.post("/api/colleges", async (req, res, next) => {
       id: id("college"),
       school: requiredString(req.body.school, "学校"),
       college: requiredString(req.body.college, "学院"),
+      programType: optionalString(req.body.programType) || "夏令营",
       campName: requiredString(req.body.campName, "夏令营名称"),
       deadline: requiredString(req.body.deadline, "截止时间"),
       courses: optionalString(req.body.courses),
@@ -286,6 +332,7 @@ app.put("/api/colleges/:collegeId", requireAdmin, async (req, res, next) => {
 
     college.school = requiredString(req.body.school, "学校");
     college.college = requiredString(req.body.college, "学院");
+    college.programType = optionalString(req.body.programType) || college.programType || "夏令营";
     college.campName = requiredString(req.body.campName, "夏令营名称");
     college.deadline = requiredString(req.body.deadline, "截止时间");
     college.courses = optionalString(req.body.courses);

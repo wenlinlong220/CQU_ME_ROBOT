@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>推免夏令营辅助系统</title>
+    <title>推免信息与导师评价辅助系统</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <header class="topbar">
       <div>
-        <h1>推免夏令营辅助系统</h1>
-        <p>汇总学校学院夏令营、复习资料、导师方向与同学意向。</p>
+        <h1>推免信息与导师评价辅助系统</h1>
+        <p>按学校和学院汇总夏令营、预推免、导师关键词与同学意向。</p>
       </div>
       <div class="topbar-actions">
         <button class="secondary-button admin-button" id="adminButton" type="button">管理模式</button>
@@ -22,20 +22,20 @@
       <section class="panel list-panel" aria-labelledby="collegeHeading">
         <div class="panel-header">
           <div>
-            <h2 id="collegeHeading">学校学院总表</h2>
+            <h2 id="collegeHeading">学校 / 学院目录</h2>
             <span id="summaryText">正在加载...</span>
           </div>
-          <input id="searchInput" type="search" placeholder="搜索学校、学院、方向" />
+          <input id="searchInput" type="search" placeholder="搜索学校、学院、导师、关键词" />
         </div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>学校学院</th>
-                <th>夏令营</th>
-                <th>截止报名</th>
-                <th>专业课 / 复习资料</th>
-                <th>导师 / 意向</th>
+                <th>学院 / 类型</th>
+                <th>项目</th>
+                <th>时间 / 规模</th>
+                <th>关键词 / 资料</th>
+                <th>导师 / 数据</th>
               </tr>
             </thead>
             <tbody id="collegeRows"></tbody>
@@ -46,7 +46,7 @@
       <section class="panel detail-panel" aria-live="polite">
         <div id="collegeDetail" class="empty-state">
           <h2>选择一个学院查看详情</h2>
-          <p>详情页会列出不同方向导师、期刊信息，并支持同学填报意向。</p>
+          <p>详情页会按类型展示夏令营、预推免或导师评价聚合信息。</p>
         </div>
       </section>
     </main>
@@ -71,8 +71,14 @@
         <input type="hidden" name="collegeId" />
         <label>学校<input name="school" required placeholder="例如：重庆大学" /></label>
         <label>学院<input name="college" required placeholder="例如：机械与运载工程学院" /></label>
-        <label>夏令营名称<input name="campName" required placeholder="优秀大学生夏令营" /></label>
-        <label>截止报名时间<input name="deadline" required type="date" /></label>
+        <label>类型
+          <select name="programType" required>
+            <option value="夏令营">夏令营</option>
+            <option value="预推免">预推免</option>
+          </select>
+        </label>
+        <label>项目名称<input name="campName" required placeholder="优秀大学生夏令营 / 预推免招生" /></label>
+        <label>截止时间<input name="deadline" required type="date" /></label>
         <label>专业课<textarea name="courses" rows="2" placeholder="机械设计、自动控制原理"></textarea></label>
         <label>面试复习资料<textarea name="reviewMaterials" rows="2" placeholder="资料链接、题库、经验贴"></textarea></label>
         <label>相关链接<input name="relatedLink" type="url" placeholder="https://example.edu/notice.htm" /></label>

@@ -214,23 +214,23 @@ td {
 }
 
 th:nth-child(1) {
-  width: 34%;
+  width: 24%;
 }
 
 th:nth-child(2) {
-  width: 12%;
+  width: 17%;
 }
 
 th:nth-child(3) {
-  width: 12%;
+  width: 13%;
 }
 
 th:nth-child(4) {
-  width: 28%;
+  width: 29%;
 }
 
 th:nth-child(5) {
-  width: 14%;
+  width: 17%;
 }
 
 th {
@@ -248,6 +248,29 @@ tr.college-row {
 tr.college-row:hover,
 tr.college-row.active {
   background: #f0faf8;
+}
+
+.school-row td {
+  padding: 11px 16px;
+  background: #e8eef2;
+  border-top: 1px solid #cbd3df;
+  border-bottom: 1px solid #cbd3df;
+}
+
+.school-row-content {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.school-row-content strong {
+  font-size: 15px;
+}
+
+.school-row-content span {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .college-name {
@@ -278,6 +301,36 @@ tr.college-row.active {
   font-size: 12px;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.category-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #bfd0d8;
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: #344054;
+  background: #f5f7fa;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.category-badge.evaluation {
+  border-color: #c7b7ff;
+  color: #4c1d95;
+  background: #f1edff;
+}
+
+.category-badge.school-level {
+  border-color: #f7c978;
+  color: #8a4b00;
+  background: #fff7e6;
 }
 
 .link-pill {
@@ -314,6 +367,10 @@ tr.college-row.active {
 
 .deadline.soon {
   color: var(--warn);
+}
+
+.deadline.neutral {
+  color: #344054;
 }
 
 .detail-panel {
