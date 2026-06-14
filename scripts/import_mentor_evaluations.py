@@ -349,13 +349,14 @@ def evaluation_entry_signature(entry: dict) -> str:
 
 def load_existing_data(path: Path) -> dict:
     if not path.exists():
-        return {"colleges": [], "mentors": [], "intentions": []}
+        return {"colleges": [], "mentors": [], "intentions": [], "admissions": []}
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
     return {
         "colleges": data.get("colleges") if isinstance(data.get("colleges"), list) else [],
         "mentors": data.get("mentors") if isinstance(data.get("mentors"), list) else [],
         "intentions": data.get("intentions") if isinstance(data.get("intentions"), list) else [],
+        "admissions": data.get("admissions") if isinstance(data.get("admissions"), list) else [],
     }
 
 
@@ -549,6 +550,7 @@ def write_data(data_path: Path, generated_colleges: list[dict], generated_mentor
         "colleges": kept_colleges + generated_colleges,
         "mentors": kept_mentors + generated_mentors,
         "intentions": kept_intentions,
+        "admissions": existing["admissions"],
     }
     data_path.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return {

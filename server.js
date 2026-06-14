@@ -64,7 +64,8 @@ function normalizeData(data) {
   return {
     colleges: Array.isArray(data?.colleges) ? data.colleges.map(normalizeCollege) : [],
     mentors: Array.isArray(data?.mentors) ? data.mentors : [],
-    intentions: Array.isArray(data?.intentions) ? data.intentions : []
+    intentions: Array.isArray(data?.intentions) ? data.intentions : [],
+    admissions: Array.isArray(data?.admissions) ? data.admissions : []
   };
 }
 
@@ -262,6 +263,15 @@ app.get("/api/colleges", async (_req, res, next) => {
   try {
     const data = await readData();
     res.json(buildCollegeSummary(data));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/admissions", async (_req, res, next) => {
+  try {
+    const data = await readData();
+    res.json(data.admissions || []);
   } catch (error) {
     next(error);
   }

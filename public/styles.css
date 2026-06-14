@@ -134,6 +134,30 @@ select {
   min-width: 280px;
 }
 
+.view-tabs {
+  display: inline-flex;
+  border: 1px solid #cbd3df;
+  border-radius: 8px;
+  padding: 2px;
+  background: #f8fafc;
+}
+
+.view-tab {
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #344054;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.view-tab.active {
+  color: white;
+  background: var(--accent);
+}
+
 .panel-tools select {
   width: 132px;
 }
@@ -264,14 +288,17 @@ th {
 }
 
 tr.college-row,
-tr.college-directory-row {
+tr.college-directory-row,
+tr.admission-row {
   cursor: pointer;
 }
 
 tr.college-row:hover,
 tr.college-row.active,
 tr.college-directory-row:hover,
-tr.college-directory-row.active {
+tr.college-directory-row.active,
+tr.admission-row:hover,
+tr.admission-row.active {
   background: #f0faf8;
 }
 

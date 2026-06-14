@@ -1,4 +1,4 @@
-const STATIC_DATA_STORAGE_KEY = "cqu_me_robot_static_data_v5";
+const STATIC_DATA_STORAGE_KEY = "cqu_me_robot_static_data_v6";
 const ADMIN_PASSWORD_STORAGE_KEY = "adminPassword";
 const STATIC_ADMIN_PASSWORD = "admin123";
 const GENERATED_SOURCE = "mentor-evaluation-2025";
@@ -6,10 +6,14 @@ const DIRECTORY_PROGRAM_TYPE = "学院目录";
 
 const state = {
   colleges: [],
+  admissions: [],
   selectedCollegeId: "",
   selectedCollege: null,
+  selectedAdmissionId: "",
+  selectedAdmission: null,
   search: "",
   typeFilter: "all",
+  activeView: "colleges",
   selectedGroupKey: "",
   selectedGroup: null,
   isAdmin: false,
@@ -25,6 +29,7 @@ const collegeDetail = document.querySelector("#collegeDetail");
 const summaryText = document.querySelector("#summaryText");
 const searchInput = document.querySelector("#searchInput");
 const typeFilter = document.querySelector("#typeFilter");
+const tableHead = document.querySelector("#tableHead");
 const adminButton = document.querySelector("#adminButton");
 
 function id(prefix) {
@@ -39,7 +44,8 @@ function normalizeData(data) {
   return {
     colleges: Array.isArray(data?.colleges) ? data.colleges.map(normalizeCollege) : [],
     mentors: Array.isArray(data?.mentors) ? data.mentors : [],
-    intentions: Array.isArray(data?.intentions) ? data.intentions : []
+    intentions: Array.isArray(data?.intentions) ? data.intentions : [],
+    admissions: Array.isArray(data?.admissions) ? data.admissions : []
   };
 }
 
@@ -256,6 +262,10 @@ async function localApi(path, options = {}) {
     return { ok: true };
   }
 
+  if (parts[0] === "admissions" && parts.length === 1 && method === "GET") {
+    return clone(data.admissions || []);
+  }
+
   if (parts[0] !== "colleges") {
     throw new Error("请求地址不存在");
   }
@@ -424,6 +434,11 @@ async function initializeDataSource() {
 
 async function loadColleges(selectFirst = true) {
   state.colleges = await api("api/colleges");
+  state.admissions = await api("api/admissions").catch(() => []);
+  if (state.activeView === "admissions") {
+    renderAdmissionsView();
+    return;
+  }
   const groups = buildCollegeGroups();
   if (selectFirst && !state.selectedGroupKey && groups.length) {
     state.selectedGroupKey = groups[0].key;
@@ -569,6 +584,16 @@ function toggleSchool(school) {
 }
 
 function renderCollegeRows() {
+  tableHead.innerHTML = `
+    <tr>
+      <th>学院 / 类型</th>
+      <th>项目</th>
+      <th>时间 / 规模</th>
+      <th>关键词 / 资料</th>
+      <th>导师 / 数据</th>
+    </tr>
+  `;
+  typeFilter.hidden = false;
   const rows = filteredColleges();
   const mentorCount = state.colleges.reduce((sum, college) => sum + college.mentorCount, 0);
   const intentionCount = state.colleges.reduce((sum, college) => sum + college.intentionCount, 0);
@@ -653,6 +678,218 @@ function renderCollegeRows() {
       return schoolHeader + groupRowsHtml;
     })
     .join("");
+}
+
+function filteredAdmissions() {
+  const keyword = state.search.trim().toLowerCase();
+  return state.admissions.filter((entry) => {
+    if (!keyword) return true;
+    return [
+      entry.cohort,
+      entry.undergraduateCollege,
+      entry.undergraduateMajor,
+      entry.recommendationType,
+      entry.destinationSchool,
+      entry.destinationCollege,
+      entry.destinationMajor,
+      entry.majorCode
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(keyword);
+  });
+}
+
+function countBy(items, key) {
+  return items.reduce((counter, item) => {
+    const value = item[key] || "未填写";
+    counter.set(value, (counter.get(value) || 0) + 1);
+    return counter;
+  }, new Map());
+}
+
+function topCountTags(items, key, limit = 10) {
+  return [...countBy(items, key).entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "zh-CN"))
+    .slice(0, limit)
+    .map(([name, count]) => `<span class="tag">${escapeHtml(name)} · ${count}</span>`)
+    .join("");
+}
+
+function renderAdmissionsView() {
+  renderAdmissionRows();
+  const selected = state.admissions.find((entry) => entry.id === state.selectedAdmissionId);
+  if (selected) {
+    renderAdmissionDetail(selected);
+  } else {
+    renderAdmissionOverview();
+  }
+}
+
+function renderAdmissionRows() {
+  typeFilter.hidden = true;
+  tableHead.innerHTML = `
+    <tr>
+      <th>本科专业</th>
+      <th>去向院校</th>
+      <th>去向学院</th>
+      <th>拟录取专业</th>
+      <th>年级 / 类型</th>
+    </tr>
+  `;
+
+  const rows = filteredAdmissions().sort(
+    (a, b) =>
+      (a.undergraduateMajor || "").localeCompare(b.undergraduateMajor || "", "zh-CN") ||
+      (a.destinationSchool || "").localeCompare(b.destinationSchool || "", "zh-CN") ||
+      (a.destinationCollege || "").localeCompare(b.destinationCollege || "", "zh-CN")
+  );
+  const majorCount = new Set(state.admissions.map((entry) => entry.undergraduateMajor).filter(Boolean)).size;
+  const schoolCount = new Set(state.admissions.map((entry) => entry.destinationSchool).filter(Boolean)).size;
+  summaryText.textContent = `${state.admissions.length} 条保研去向，${majorCount} 个本科专业，${schoolCount} 个去向院校`;
+
+  collegeRows.innerHTML = rows.length
+    ? rows
+        .map(
+          (entry) => `
+            <tr class="admission-row ${entry.id === state.selectedAdmissionId ? "active" : ""}" data-admission-id="${escapeHtml(entry.id)}">
+              <td>
+                <strong>${escapeHtml(entry.undergraduateMajor || "未填写")}</strong>
+                <div class="muted">${escapeHtml(entry.undergraduateCollege || "未填写学院")}</div>
+              </td>
+              <td><strong>${escapeHtml(entry.destinationSchool || "未填写")}</strong></td>
+              <td>${escapeHtml(entry.destinationCollege || "未填写")}</td>
+              <td>
+                <strong>${escapeHtml(entry.destinationMajor || "未填写")}</strong>
+                ${entry.majorCode ? `<div class="muted">${escapeHtml(entry.majorCode)}</div>` : ""}
+              </td>
+              <td>
+                <strong>${escapeHtml(entry.cohort || "往年")}</strong>
+                <div class="muted">${escapeHtml(entry.recommendationType || "未标注")}</div>
+              </td>
+            </tr>
+          `
+        )
+        .join("")
+    : '<tr><td colspan="5">没有匹配的往年保研记录。</td></tr>';
+}
+
+function renderAdmissionOverview() {
+  const rows = filteredAdmissions();
+  collegeDetail.className = "detail-content";
+  collegeDetail.innerHTML = `
+    <div class="detail-heading">
+      <div class="text-block">
+        <h2>往年保研情况</h2>
+        <p class="meta">${rows.length} 条当前筛选结果 · 数据来自 21 级保研去向表</p>
+      </div>
+    </div>
+    <div class="info-grid">
+      <div class="info-box">
+        <span>总记录</span>
+        <strong>${state.admissions.length} 条</strong>
+      </div>
+      <div class="info-box">
+        <span>本科专业</span>
+        <strong>${new Set(state.admissions.map((entry) => entry.undergraduateMajor).filter(Boolean)).size} 个</strong>
+      </div>
+      <div class="info-box">
+        <span>去向院校</span>
+        <strong>${new Set(state.admissions.map((entry) => entry.destinationSchool).filter(Boolean)).size} 所</strong>
+      </div>
+      <div class="info-box">
+        <span>去向年份</span>
+        <strong>${[...new Set(state.admissions.map((entry) => entry.admissionYear).filter(Boolean))].join("、") || "未标注"}</strong>
+      </div>
+    </div>
+    <section class="detail-section">
+      <div class="section-heading">
+        <h3>本科专业分布</h3>
+        <span>按人数</span>
+      </div>
+      <div class="tag-list">${topCountTags(rows, "undergraduateMajor", 14)}</div>
+    </section>
+    <section class="detail-section">
+      <div class="section-heading">
+        <h3>去向院校分布</h3>
+        <span>按人数</span>
+      </div>
+      <div class="tag-list">${topCountTags(rows, "destinationSchool", 14)}</div>
+    </section>
+  `;
+}
+
+function renderAdmissionDetail(entry) {
+  collegeDetail.className = "detail-content";
+  collegeDetail.innerHTML = `
+    <div class="detail-heading">
+      <div class="text-block">
+        <h2>${escapeHtml(entry.destinationSchool || "未填写去向院校")}</h2>
+        <p class="meta">${escapeHtml(entry.cohort || "往年")} · ${escapeHtml(entry.undergraduateMajor || "未填写本科专业")}</p>
+      </div>
+    </div>
+    <div class="info-grid">
+      <div class="info-box">
+        <span>本科学院</span>
+        <strong>${escapeHtml(entry.undergraduateCollege || "未填写")}</strong>
+      </div>
+      <div class="info-box">
+        <span>本科专业</span>
+        <strong>${escapeHtml(entry.undergraduateMajor || "未填写")}</strong>
+      </div>
+      <div class="info-box">
+        <span>拟录取学院</span>
+        <strong>${escapeHtml(entry.destinationCollege || "未填写")}</strong>
+      </div>
+      <div class="info-box">
+        <span>拟录取专业</span>
+        <strong>${escapeHtml(entry.destinationMajor || "未填写")}</strong>
+      </div>
+      <div class="info-box">
+        <span>专业代码</span>
+        <strong>${escapeHtml(entry.majorCode || "未填写")}</strong>
+      </div>
+      <div class="info-box">
+        <span>推荐类型</span>
+        <strong>${escapeHtml(entry.recommendationType || "未标注")}</strong>
+      </div>
+      <div class="info-box wide-box">
+        <span>来源</span>
+        <strong class="text-block">${escapeHtml(entry.sourceFile || "未知文件")} · ${escapeHtml(entry.sourceSheet || "未知工作表")} 第 ${entry.sourceRow || "-"} 行</strong>
+      </div>
+    </div>
+  `;
+}
+
+function updateViewTabs() {
+  document.querySelectorAll("[data-view-mode]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.viewMode === state.activeView);
+  });
+}
+
+function renderCurrentView() {
+  updateViewTabs();
+  if (state.activeView === "admissions") {
+    renderAdmissionsView();
+    return;
+  }
+  renderCollegeRows();
+  if (state.selectedGroup) {
+    renderCollegeGroupDetail();
+  } else if (state.selectedCollege) {
+    renderCollegeDetail();
+  } else {
+    renderEmptyDetail();
+  }
+}
+
+function loadAdmissionDetail(admissionId) {
+  const admission = state.admissions.find((entry) => entry.id === admissionId);
+  if (!admission) return;
+  state.selectedAdmissionId = admissionId;
+  state.selectedAdmission = admission;
+  renderAdmissionRows();
+  renderAdmissionDetail(admission);
 }
 
 function renderLegacyCollegeRows() {
@@ -1244,6 +1481,15 @@ async function deleteIntention(intentionId) {
 }
 
 document.addEventListener("click", async (event) => {
+  const viewMode = event.target.dataset.viewMode;
+  if (viewMode) {
+    state.activeView = viewMode;
+    state.selectedAdmissionId = "";
+    state.selectedAdmission = null;
+    renderCurrentView();
+    return;
+  }
+
   const modalId = event.target.dataset.openModal;
   if (modalId === "collegeModal") {
     openCollegeCreateForm();
@@ -1334,6 +1580,12 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  const admissionRow = event.target.closest(".admission-row");
+  if (admissionRow) {
+    loadAdmissionDetail(admissionRow.dataset.admissionId);
+    return;
+  }
+
   const row = event.target.closest(".college-row");
   if (row) {
     await loadCollegeDetail(row.dataset.id);
@@ -1354,12 +1606,12 @@ adminButton.addEventListener("click", () => {
 
 searchInput.addEventListener("input", (event) => {
   state.search = event.target.value;
-  renderCollegeRows();
+  renderCurrentView();
 });
 
 typeFilter.addEventListener("change", (event) => {
   state.typeFilter = event.target.value;
-  renderCollegeRows();
+  renderCurrentView();
 });
 
 document.querySelector("#adminForm").addEventListener("submit", async (event) => {
