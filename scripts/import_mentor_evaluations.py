@@ -95,6 +95,22 @@ TEXT_KEYWORDS = [
     "机械臂",
 ]
 
+EXCLUDED_COLLEGE_TERMS = [
+    "土木",
+    "交通",
+    "管理",
+    "电气",
+    "测绘",
+    "数学",
+    "计算机",
+    "软件",
+    "网络空间",
+    "材料",
+    "能源",
+    "动力",
+    "能动",
+]
+
 FIELD_PATTERN = re.compile("|".join(re.escape(k) for k in sorted(FIELD_KEYWORDS, key=len, reverse=True)), re.I)
 TEXT_PATTERN = re.compile("|".join(re.escape(k) for k in sorted(TEXT_KEYWORDS, key=len, reverse=True)), re.I)
 
@@ -132,6 +148,11 @@ def school_level(school: str) -> str:
 
 def allowed_school(school: str) -> bool:
     return bool(school_level(school))
+
+
+def allowed_college(college: str) -> bool:
+    normalized = normalize_key(college)
+    return not any(normalize_key(term) in normalized for term in EXCLUDED_COLLEGE_TERMS)
 
 
 def rating_from_row(sheet_name: str, values: list[str]) -> float | None:
@@ -190,7 +211,7 @@ def build_generated_data(source: Path) -> tuple[list[dict], list[dict], dict]:
                 continue
 
             school, college, mentor_name = values[0], values[1], values[2]
-            if not school or not college or not mentor_name or not allowed_school(school):
+            if not school or not college or not mentor_name or not allowed_school(school) or not allowed_college(college):
                 continue
 
             row_text = " ".join(values[2:])

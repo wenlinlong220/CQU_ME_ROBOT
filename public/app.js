@@ -8,9 +8,11 @@ const state = {
   selectedCollegeId: "",
   selectedCollege: null,
   search: "",
+  typeFilter: "all",
   isAdmin: false,
   adminPassword: sessionStorage.getItem(ADMIN_PASSWORD_STORAGE_KEY) || "",
-  usingBackend: false
+  usingBackend: false,
+  expandedSchools: new Set()
 };
 
 let staticData = null;
@@ -19,6 +21,7 @@ const collegeRows = document.querySelector("#collegeRows");
 const collegeDetail = document.querySelector("#collegeDetail");
 const summaryText = document.querySelector("#summaryText");
 const searchInput = document.querySelector("#searchInput");
+const typeFilter = document.querySelector("#typeFilter");
 const adminButton = document.querySelector("#adminButton");
 
 function id(prefix) {
@@ -412,6 +415,10 @@ async function loadColleges(selectFirst = true) {
   if (selectFirst && !state.selectedCollegeId && state.colleges.length) {
     state.selectedCollegeId = state.colleges[0].id;
   }
+  const selectedCollege = state.colleges.find((college) => college.id === state.selectedCollegeId);
+  if (selectedCollege) {
+    state.expandedSchools.add(selectedCollege.school);
+  }
   renderCollegeRows();
   if (state.selectedCollegeId) {
     const exists = state.colleges.some((college) => college.id === state.selectedCollegeId);
@@ -431,14 +438,19 @@ async function loadColleges(selectFirst = true) {
 async function loadCollegeDetail(collegeId) {
   state.selectedCollegeId = collegeId;
   state.selectedCollege = await api(`api/colleges/${collegeId}`);
+  if (state.selectedCollege?.school) {
+    state.expandedSchools.add(state.selectedCollege.school);
+  }
   renderCollegeRows();
   renderCollegeDetail();
 }
 
 function filteredColleges() {
   const keyword = state.search.trim().toLowerCase();
-  if (!keyword) return state.colleges;
   return state.colleges.filter((college) => {
+    if (state.typeFilter === "notice" && isMentorEvaluation(college)) return false;
+    if (state.typeFilter !== "all" && state.typeFilter !== "notice" && college.programType !== state.typeFilter) return false;
+    if (!keyword) return true;
     const haystack = [
       college.school,
       college.college,
@@ -463,6 +475,15 @@ function relatedLinkHtml(link, text = "相关链接") {
   return `<a class="link-pill" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`;
 }
 
+function toggleSchool(school) {
+  if (state.expandedSchools.has(school)) {
+    state.expandedSchools.delete(school);
+  } else {
+    state.expandedSchools.add(school);
+  }
+  renderCollegeRows();
+}
+
 function renderCollegeRows() {
   const rows = filteredColleges();
   const mentorCount = state.colleges.reduce((sum, college) => sum + college.mentorCount, 0);
@@ -470,6 +491,7 @@ function renderCollegeRows() {
   const schoolCount = new Set(state.colleges.map((college) => college.school)).size;
   const schoolCollegeCount = new Set(state.colleges.map((college) => `${college.school}|${college.college}`)).size;
   summaryText.textContent = `${schoolCount} 所学校，${schoolCollegeCount} 个学院，${mentorCount} 位导师，${intentionCount} 条意向`;
+  const isSearching = Boolean(state.search.trim());
 
   const groupedRows = rows.reduce((groups, college) => {
     if (!groups.has(college.school)) groups.set(college.school, []);
@@ -481,83 +503,89 @@ function renderCollegeRows() {
     .map(([school, colleges]) => {
       const schoolMentorCount = colleges.reduce((sum, college) => sum + college.mentorCount, 0);
       const schoolCollegeCount = new Set(colleges.map((college) => college.college)).size;
+      const noticeCount = colleges.filter((college) => !isMentorEvaluation(college)).length;
+      const evaluationCount = colleges.length - noticeCount;
       const schoolLevel = colleges.map(sourceLabel).find(Boolean);
+      const expanded = isSearching || state.expandedSchools.has(school);
       const schoolHeader = `
-        <tr class="school-row">
+        <tr class="school-row ${expanded ? "expanded" : ""}" data-school="${escapeHtml(school)}">
           <td colspan="5">
             <div class="school-row-content">
+              <span class="school-toggle">${expanded ? "▾" : "▸"}</span>
               <strong>${escapeHtml(school)}</strong>
-              <span>${schoolCollegeCount} 个学院 · ${schoolMentorCount} 位导师</span>
+              <span>${schoolCollegeCount} 个学院 · ${noticeCount} 条通知 · ${evaluationCount} 个导师评价入口 · ${schoolMentorCount} 位导师</span>
               ${badgeHtml(schoolLevel, "school-level")}
             </div>
           </td>
         </tr>
       `;
 
+      if (!expanded) return schoolHeader;
+
       const collegeRowsHtml = colleges.map((college) => {
-      const deadline = new Date(`${college.deadline}T23:59:59`);
-      const daysLeft = Math.ceil((deadline - new Date()) / 86400000);
-      const deadlineClass = !Number.isNaN(daysLeft) && daysLeft >= 0 && daysLeft <= 7 ? "deadline soon" : "deadline";
-      const evaluation = isMentorEvaluation(college);
-      const keywordTags = (college.keywords || college.directions || []).slice(0, 5);
-      const rating = formatRating(college.averageRating);
-      return `
-        <tr class="college-row ${college.id === state.selectedCollegeId ? "active" : ""}" data-id="${college.id}">
-          <td>
-            <div class="college-name">
-              <strong>${escapeHtml(college.college)}</strong>
-              <div class="badge-row">
-                ${badgeHtml(college.programType, evaluation ? "evaluation" : "")}
-                ${badgeHtml(sourceLabel(college), "school-level")}
+        const deadline = new Date(`${college.deadline}T23:59:59`);
+        const daysLeft = Math.ceil((deadline - new Date()) / 86400000);
+        const deadlineClass = !Number.isNaN(daysLeft) && daysLeft >= 0 && daysLeft <= 7 ? "deadline soon" : "deadline";
+        const evaluation = isMentorEvaluation(college);
+        const keywordTags = (college.keywords || college.directions || []).slice(0, 5);
+        const rating = formatRating(college.averageRating);
+        return `
+          <tr class="college-row ${college.id === state.selectedCollegeId ? "active" : ""}" data-id="${college.id}">
+            <td>
+              <div class="college-name">
+                <strong>${escapeHtml(college.college)}</strong>
+                <div class="badge-row">
+                  ${badgeHtml(evaluation ? "导师评价" : `${college.programType}通知`, evaluation ? "evaluation" : "notice")}
+                  ${badgeHtml(sourceLabel(college), "school-level")}
+                </div>
               </div>
-            </div>
-          </td>
-          <td>
-            <strong>${escapeHtml(college.campName)}</strong>
-            ${evaluation ? `<div class="muted">${escapeHtml(college.sourceYear || "2025")} 年关键词聚合</div>` : ""}
-          </td>
-          <td>
-            ${
-              evaluation
-                ? `<span class="deadline neutral">${college.recordCount || 0} 条记录</span>`
-                : `<span class="${deadlineClass}">${formatDate(college.deadline)}</span>`
-            }
-          </td>
-          <td>
-            <strong>${escapeHtml(college.courses || "待补充")}</strong>
-            <div class="muted text-block">${escapeHtml(college.reviewMaterials || "待补充")}</div>
-            <div class="tag-list">
-              ${keywordTags.map((keyword) => `<span class="tag">${escapeHtml(keyword)}</span>`).join("")}
-            </div>
-          </td>
-          <td>
-            <strong>${college.mentorCount} 位导师</strong>
-            ${
-              evaluation
-                ? `<div class="muted">${rating ? `平均评分 ${rating}` : "评分暂无"}</div>`
-                : `<div class="muted">${college.intentionCount} 条意向填报</div>`
-            }
-            <div class="tag-list">
+            </td>
+            <td>
+              <strong>${escapeHtml(college.campName)}</strong>
+              ${evaluation ? `<div class="muted">${escapeHtml(college.sourceYear || "2025")} 年关键词聚合</div>` : `<div>${relatedLinkHtml(college.relatedLink, "打开通知")}</div>`}
+            </td>
+            <td>
               ${
                 evaluation
-                  ? (college.mentorNames || [])
-                      .slice(0, 4)
-                      .map((name) => `<span class="tag">${escapeHtml(name)}</span>`)
-                      .join("")
-                  : (college.interestedStudents || [])
-                      .slice(0, 4)
-                      .map((item) => `<span class="tag">${escapeHtml(item.studentName)} -> ${escapeHtml(item.mentorName)}</span>`)
-                      .join("")
+                  ? `<span class="deadline neutral">${college.recordCount || 0} 条记录</span>`
+                  : `<span class="${deadlineClass}">${formatDate(college.deadline)}</span>`
               }
+            </td>
+            <td>
+              <strong>${escapeHtml(college.courses || "待补充")}</strong>
+              <div class="muted text-block">${escapeHtml(college.reviewMaterials || "待补充")}</div>
+              <div class="tag-list">
+                ${keywordTags.map((keyword) => `<span class="tag">${escapeHtml(keyword)}</span>`).join("")}
+              </div>
+            </td>
+            <td>
+              <strong>${college.mentorCount} 位导师</strong>
               ${
-                !evaluation && college.intentionCount > 4
-                  ? `<span class="tag">另 ${college.intentionCount - 4} 条</span>`
-                  : ""
+                evaluation
+                  ? `<div class="muted">${rating ? `平均评分 ${rating}` : "评分暂无"}</div>`
+                  : `<div class="muted">${college.intentionCount} 条意向填报</div>`
               }
-            </div>
-          </td>
-        </tr>
-      `;
+              <div class="tag-list">
+                ${
+                  evaluation
+                    ? (college.mentorNames || [])
+                        .slice(0, 4)
+                        .map((name) => `<span class="tag">${escapeHtml(name)}</span>`)
+                        .join("")
+                    : (college.interestedStudents || [])
+                        .slice(0, 4)
+                        .map((item) => `<span class="tag">${escapeHtml(item.studentName)} -> ${escapeHtml(item.mentorName)}</span>`)
+                        .join("")
+                }
+                ${
+                  !evaluation && college.intentionCount > 4
+                    ? `<span class="tag">另 ${college.intentionCount - 4} 条</span>`
+                    : ""
+                }
+              </div>
+            </td>
+          </tr>
+        `;
       }).join("");
 
       return schoolHeader + collegeRowsHtml;
@@ -668,7 +696,7 @@ function renderCollegeDetail() {
       </div>
       <div class="button-row">
         ${!evaluation && state.isAdmin ? `<button class="secondary-button" data-edit-college="${college.id}">编辑学院</button>` : ""}
-        ${!evaluation && state.isAdmin ? `<button class="danger-button" data-delete-college="${college.id}">删除学院</button>` : ""}
+        ${state.isAdmin ? `<button class="danger-button" data-delete-college="${college.id}">删除学院</button>` : ""}
         ${!evaluation ? `<button class="secondary-button" data-add-mentor="${college.id}">新增导师</button>` : ""}
       </div>
     </div>
@@ -718,23 +746,21 @@ function renderCollegeDetail() {
 
 function renderMentorCard(mentor) {
   const evaluation = mentor.source === GENERATED_SOURCE || mentor.source === "mentor-evaluation-2025";
-  const students = evaluation
-    ? ""
-    : mentor.intentions.length
-      ? mentor.intentions
-          .map(
-            (item) => `
-              <li>
-                <div>
-                  <strong>${escapeHtml(item.studentName)} ${item.major ? `· ${escapeHtml(item.major)}` : ""}</strong>
-                  <span class="muted text-block">${escapeHtml([item.gradeRank, item.note].filter(Boolean).join(" · ") || "暂无备注")}</span>
-                </div>
-                ${state.isAdmin ? `<button class="text-button danger-text" data-delete-intention="${item.id}">删除</button>` : ""}
-              </li>
-            `
-          )
-          .join("")
-      : '<li><span class="muted">暂无同学填报</span></li>';
+  const students = mentor.intentions.length
+    ? mentor.intentions
+        .map(
+          (item) => `
+            <li>
+              <div>
+                <strong>${escapeHtml(item.studentName)} ${item.major ? `· ${escapeHtml(item.major)}` : ""}</strong>
+                <span class="muted text-block">${escapeHtml([item.gradeRank, item.note].filter(Boolean).join(" · ") || "暂无备注")}</span>
+              </div>
+              ${state.isAdmin ? `<button class="text-button danger-text" data-delete-intention="${item.id}">删除</button>` : ""}
+            </li>
+          `
+        )
+        .join("")
+    : '<li><span class="muted">暂无同学填报</span></li>';
 
   return `
     <article class="mentor-card">
@@ -751,15 +777,15 @@ function renderMentorCard(mentor) {
         </div>
         <div class="button-row">
           ${!evaluation && state.isAdmin ? `<button class="secondary-button" data-edit-mentor="${mentor.id}">编辑导师</button>` : ""}
-          ${!evaluation && state.isAdmin ? `<button class="danger-button" data-delete-mentor="${mentor.id}">删除导师</button>` : ""}
-          ${!evaluation ? `<button class="primary-button" data-intent-college="${mentor.collegeId}" data-intent-mentor="${mentor.id}" data-intent-name="${escapeHtml(mentor.name)}">填报意向</button>` : ""}
+          ${state.isAdmin ? `<button class="danger-button" data-delete-mentor="${mentor.id}">删除导师</button>` : ""}
+          <button class="primary-button" data-intent-college="${mentor.collegeId}" data-intent-mentor="${mentor.id}" data-intent-name="${escapeHtml(mentor.name)}">填报意向</button>
         </div>
       </div>
       <div class="mentor-body">
         <div class="text-block"><strong>方向：</strong>${escapeHtml(mentor.direction)}</div>
         <div class="text-block"><strong>期刊：</strong>${escapeHtml(mentor.journals || "待补充")}</div>
         <div class="text-block"><strong>介绍：</strong>${escapeHtml(mentor.profile || "待补充")}</div>
-        ${evaluation ? "" : `<div><strong>当前意向同学：</strong><ul class="student-list">${students}</ul></div>`}
+        <div><strong>当前意向同学：</strong><ul class="student-list">${students}</ul></div>
       </div>
     </article>
   `;
@@ -947,6 +973,12 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  const schoolRow = event.target.closest(".school-row");
+  if (schoolRow) {
+    toggleSchool(schoolRow.dataset.school);
+    return;
+  }
+
   const row = event.target.closest(".college-row");
   if (row) {
     await loadCollegeDetail(row.dataset.id);
@@ -967,6 +999,11 @@ adminButton.addEventListener("click", () => {
 
 searchInput.addEventListener("input", (event) => {
   state.search = event.target.value;
+  renderCollegeRows();
+});
+
+typeFilter.addEventListener("change", (event) => {
+  state.typeFilter = event.target.value;
   renderCollegeRows();
 });
 

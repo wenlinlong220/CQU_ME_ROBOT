@@ -20,6 +20,7 @@ body {
   color: var(--text);
   background: var(--bg);
   font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+  overflow: hidden;
 }
 
 .topbar {
@@ -67,15 +68,19 @@ p {
   display: grid;
   grid-template-columns: minmax(620px, 1.2fr) minmax(360px, 0.8fr);
   gap: 20px;
+  height: calc(100vh - 98px);
+  min-height: 0;
   padding: 20px;
 }
 
 .panel {
   min-width: 0;
+  min-height: 0;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: var(--shadow);
+  overflow: hidden;
 }
 
 .panel-header {
@@ -119,6 +124,22 @@ select {
 
 #searchInput {
   max-width: 280px;
+}
+
+.panel-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 280px;
+}
+
+.panel-tools select {
+  width: 132px;
+}
+
+.panel-tools input {
+  flex: 1 1 220px;
 }
 
 .primary-button,
@@ -193,6 +214,7 @@ select {
 }
 
 .table-wrap {
+  height: calc(100% - 74px);
   overflow: auto;
 }
 
@@ -257,11 +279,31 @@ tr.college-row.active {
   border-bottom: 1px solid #cbd3df;
 }
 
+.school-row {
+  cursor: pointer;
+}
+
+.school-row:hover td {
+  background: #dfe8ee;
+}
+
 .school-row-content {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+.school-toggle {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 999px;
+  color: #344054;
+  background: white;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .school-row-content strong {
@@ -327,6 +369,12 @@ tr.college-row.active {
   background: #f1edff;
 }
 
+.category-badge.notice {
+  border-color: #99d7cf;
+  color: var(--accent-strong);
+  background: #e8f7f4;
+}
+
 .category-badge.school-level {
   border-color: #f7c978;
   color: #8a4b00;
@@ -374,7 +422,8 @@ tr.college-row.active {
 }
 
 .detail-panel {
-  min-height: 620px;
+  min-height: 0;
+  overflow: auto;
 }
 
 .empty-state {
@@ -530,8 +579,19 @@ label {
 }
 
 @media (max-width: 1020px) {
+  body {
+    overflow: auto;
+  }
+
   .layout {
     grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .table-wrap,
+  .detail-panel {
+    height: auto;
+    overflow: visible;
   }
 }
 
@@ -559,6 +619,14 @@ label {
 
   #searchInput {
     max-width: none;
+  }
+
+  .panel-tools {
+    min-width: 0;
+  }
+
+  .panel-tools select {
+    width: 100%;
   }
 
   .info-grid {
