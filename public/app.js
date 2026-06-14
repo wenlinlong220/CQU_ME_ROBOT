@@ -1,4 +1,4 @@
-const STATIC_DATA_STORAGE_KEY = "cqu_me_robot_static_data_v2";
+const STATIC_DATA_STORAGE_KEY = "cqu_me_robot_static_data_v3";
 const ADMIN_PASSWORD_STORAGE_KEY = "adminPassword";
 const STATIC_ADMIN_PASSWORD = "admin123";
 const GENERATED_SOURCE = "mentor-evaluation-2025";
