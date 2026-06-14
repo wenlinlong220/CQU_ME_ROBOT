@@ -99,9 +99,14 @@ EXCLUDED_COLLEGE_TERMS = [
     "土木",
     "交通",
     "管理",
+    "建筑",
+    "建设",
     "电气",
     "测绘",
     "数学",
+    "理学院",
+    "物理",
+    "地理",
     "计算机",
     "软件",
     "网络空间",
@@ -109,6 +114,51 @@ EXCLUDED_COLLEGE_TERMS = [
     "能源",
     "动力",
     "能动",
+    "化工",
+    "化学",
+    "医学",
+    "医学院",
+    "生物",
+    "食品",
+    "资源",
+    "安全",
+    "海洋",
+    "核科学",
+    "声学",
+    "动物",
+    "农",
+]
+
+INCLUDED_COLLEGE_TERMS = [
+    "机械",
+    "自动化",
+    "控制",
+    "航空",
+    "航天",
+    "宇航",
+    "机电",
+    "车辆",
+    "汽车",
+    "运载",
+    "仪器",
+    "精密仪器",
+    "光电",
+    "光学",
+    "人工智能",
+    "智能",
+    "机器人",
+    "制造",
+    "信息学部",
+    "信息科学",
+    "信息工程",
+    "电子信息",
+    "电子与信息",
+    "信息与电子",
+    "电子科学",
+    "电子工程",
+    "系统工程",
+    "无人",
+    "类脑",
 ]
 
 FIELD_PATTERN = re.compile("|".join(re.escape(k) for k in sorted(FIELD_KEYWORDS, key=len, reverse=True)), re.I)
@@ -152,7 +202,22 @@ def allowed_school(school: str) -> bool:
 
 def allowed_college(college: str) -> bool:
     normalized = normalize_key(college)
-    return not any(normalize_key(term) in normalized for term in EXCLUDED_COLLEGE_TERMS)
+    if any(normalize_key(term) in normalized for term in EXCLUDED_COLLEGE_TERMS):
+        return False
+    return any(normalize_key(term) in normalized for term in INCLUDED_COLLEGE_TERMS)
+
+
+def canonical_college_name(school: str, college: str) -> str:
+    normalized = normalize_key(college)
+    if school == "浙江大学" and normalized == normalize_key("机械工程学系"):
+        return "机械工程学院"
+    if school == "浙江大学" and normalized == normalize_key("控制科学与工程学系"):
+        return "控制科学与工程学院"
+    if school == "浙江大学" and normalized == normalize_key("信息与电子工程学系"):
+        return "信息与电子工程学院"
+    if school == "西安交通大学" and normalized == normalize_key("电子与信息学部"):
+        return "自动化科学与工程学院"
+    return college
 
 
 def rating_from_row(sheet_name: str, values: list[str]) -> float | None:
@@ -186,6 +251,7 @@ def load_existing_data(path: Path) -> dict:
 
 def normalize_existing_college(college: dict) -> dict:
     item = dict(college)
+    item["college"] = canonical_college_name(str(item.get("school", "")), str(item.get("college", "")))
     if "programType" not in item:
         camp_name = str(item.get("campName", ""))
         item["programType"] = "预推免" if "预推免" in camp_name else "夏令营"
@@ -210,9 +276,10 @@ def build_generated_data(source: Path) -> tuple[list[dict], list[dict], dict]:
             if len(values) < 3:
                 continue
 
-            school, college, mentor_name = values[0], values[1], values[2]
-            if not school or not college or not mentor_name or not allowed_school(school) or not allowed_college(college):
+            school, raw_college, mentor_name = values[0], values[1], values[2]
+            if not school or not raw_college or not mentor_name or not allowed_school(school) or not allowed_college(raw_college):
                 continue
+            college = canonical_college_name(school, raw_college)
 
             row_text = " ".join(values[2:])
             keywords = match_keywords(college, row_text)

@@ -263,12 +263,15 @@ th {
   font-size: 13px;
 }
 
-tr.college-row {
+tr.college-row,
+tr.college-directory-row {
   cursor: pointer;
 }
 
 tr.college-row:hover,
-tr.college-row.active {
+tr.college-row.active,
+tr.college-directory-row:hover,
+tr.college-directory-row.active {
   background: #f0faf8;
 }
 
@@ -480,11 +483,51 @@ tr.college-row.active {
   gap: 12px;
 }
 
-.mentor-card {
+.detail-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+}
+
+.section-heading h3 {
+  font-size: 16px;
+}
+
+.section-heading span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.section-list {
+  display: grid;
+  gap: 12px;
+}
+
+.empty-inline {
+  border: 1px dashed #cbd3df;
+  border-radius: 8px;
+  padding: 14px;
+  color: var(--muted);
+  background: #fbfcfd;
+  font-size: 14px;
+}
+
+.mentor-card,
+.notice-card {
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 14px;
+  background: white;
 }
 
 .mentor-head {
@@ -492,6 +535,32 @@ tr.college-row.active {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+summary.mentor-head {
+  cursor: pointer;
+  list-style: none;
+}
+
+summary.mentor-head::-webkit-details-marker {
+  display: none;
+}
+
+summary.mentor-head::before {
+  content: "+";
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--accent-strong);
+  background: #e8f7f4;
+  font-weight: 700;
+}
+
+.mentor-card[open] summary.mentor-head::before {
+  content: "−";
 }
 
 .mentor-head h3 {
