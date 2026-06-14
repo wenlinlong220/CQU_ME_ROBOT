@@ -59,6 +59,20 @@ PROJECT_985 = {
 
 SPECIAL_SCHOOLS = {"南方科技大学"}
 
+SPECIAL_ALLOWED_COLLEGES = {
+    ("北京大学", "工学院"),
+    ("北京大学", "深圳研究生院"),
+    ("北京航空航天大学", "机械工程及自动化学院"),
+    ("北京航空航天大学", "自动化科学与电气工程学院"),
+    ("上海交通大学", "机械与动力工程学院"),
+    ("上海交通大学", "电子信息与电气工程学院"),
+    ("重庆大学", "自动化学院"),
+}
+
+SPECIAL_EXCLUDED_COLLEGES = {
+    ("重庆大学", "光电工程学院"),
+}
+
 FIELD_KEYWORDS = [
     "机器人",
     "机械",
@@ -164,6 +178,10 @@ INCLUDED_COLLEGE_TERMS = [
 FIELD_PATTERN = re.compile("|".join(re.escape(k) for k in sorted(FIELD_KEYWORDS, key=len, reverse=True)), re.I)
 TEXT_PATTERN = re.compile("|".join(re.escape(k) for k in sorted(TEXT_KEYWORDS, key=len, reverse=True)), re.I)
 
+SECTION_LABEL_PATTERN = re.compile(
+    r"(自证认识导师|学术水平|科研经费|学生补助|师生关系|工作时间|学生前途|推荐就读|导师特征|导师辨识特征)[：:]"
+)
+
 
 def stable_id(prefix: str, *parts: str) -> str:
     raw = "|".join(parts).encode("utf-8")
@@ -180,6 +198,18 @@ def clean(value: object) -> str:
     text = re.sub(r"<br\s*/?>", " ", text, flags=re.I)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
+
+
+def clean_evaluation_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    text = str(value).replace("\u3000", " ")
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
+    text = re.sub(r"\r\n?", "\n", text)
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n")]
+    return "\n".join(line for line in lines if line)
 
 
 def normalize_key(value: str) -> str:
@@ -200,7 +230,20 @@ def allowed_school(school: str) -> bool:
     return bool(school_level(school))
 
 
-def allowed_college(college: str) -> bool:
+def college_pair_matches(pairs: set[tuple[str, str]], school: str, college: str) -> bool:
+    normalized_school = normalize_key(school)
+    normalized_college = normalize_key(college)
+    return any(
+        normalize_key(pair_school) == normalized_school and normalize_key(pair_college) == normalized_college
+        for pair_school, pair_college in pairs
+    )
+
+
+def allowed_college(school: str, college: str) -> bool:
+    if college_pair_matches(SPECIAL_EXCLUDED_COLLEGES, school, college):
+        return False
+    if college_pair_matches(SPECIAL_ALLOWED_COLLEGES, school, college):
+        return True
     normalized = normalize_key(college)
     if any(normalize_key(term) in normalized for term in EXCLUDED_COLLEGE_TERMS):
         return False
@@ -209,6 +252,8 @@ def allowed_college(college: str) -> bool:
 
 def canonical_college_name(school: str, college: str) -> str:
     normalized = normalize_key(college)
+    if school == "上海交通大学" and normalized == normalize_key("电子信息与电气工程学院"):
+        return "自动化与感知学院"
     if school == "浙江大学" and normalized == normalize_key("机械工程学系"):
         return "机械工程学院"
     if school == "浙江大学" and normalized == normalize_key("控制科学与工程学系"):
@@ -217,6 +262,8 @@ def canonical_college_name(school: str, college: str) -> str:
         return "信息与电子工程学院"
     if school == "西安交通大学" and normalized == normalize_key("电子与信息学部"):
         return "自动化科学与工程学院"
+    if school == "重庆大学" and normalized == normalize_key("机械工程学院"):
+        return "机械与运载工程学院"
     return college
 
 
@@ -235,6 +282,69 @@ def match_keywords(college: str, row_text: str) -> set[str]:
     field_hits = {m.group(0) for m in FIELD_PATTERN.finditer(college)}
     text_hits = {m.group(0) for m in TEXT_PATTERN.finditer(row_text)}
     return field_hits | text_hits
+
+
+def split_evaluation_sections(text: str) -> list[dict]:
+    matches = list(SECTION_LABEL_PATTERN.finditer(text))
+    if not matches:
+        return []
+
+    sections = []
+    prefix = text[: matches[0].start()].strip()
+    if prefix:
+        sections.append({"label": "评价", "text": prefix})
+
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        content = text[start:end].strip(" \n：:")
+        if content:
+            sections.append({"label": match.group(1), "text": content})
+    return sections
+
+
+def row_evaluation_entry(
+    sheet_name: str,
+    headers: list[str],
+    raw_values: list[object],
+    rating: float | None,
+    keywords: set[str],
+) -> dict | None:
+    keyword_list = sorted(keywords)
+    if sheet_name == "Sheet1":
+        sections = []
+        for col in range(3, len(raw_values)):
+            text = clean_evaluation_text(raw_values[col])
+            if not text:
+                continue
+            label = headers[col] if col < len(headers) and headers[col] else f"字段 {col + 1}"
+            sections.append({"label": label, "text": text})
+        if not sections:
+            return None
+        return {
+            "sourceSheet": sheet_name,
+            "rating": rating,
+            "keywords": keyword_list,
+            "sections": sections,
+        }
+
+    text_col = 4 if sheet_name in {"Sheet2", "黑名单"} else 3 if sheet_name == "五星推荐" else None
+    if text_col is None or text_col >= len(raw_values):
+        return None
+    text = clean_evaluation_text(raw_values[text_col])
+    if not text:
+        return None
+    return {
+        "sourceSheet": sheet_name,
+        "rating": rating,
+        "keywords": keyword_list,
+        "text": text,
+        "sections": split_evaluation_sections(text),
+    }
+
+
+def evaluation_entry_signature(entry: dict) -> str:
+    return json.dumps(entry, ensure_ascii=False, sort_keys=True)
 
 
 def load_existing_data(path: Path) -> dict:
@@ -270,14 +380,17 @@ def build_generated_data(source: Path) -> tuple[list[dict], list[dict], dict]:
     }
 
     for sheet in book.sheets():
-        start_row = 2 if sheet.name == "Sheet1" else 1
+        header_row = 1 if sheet.name == "Sheet1" else 0
+        headers = [clean(sheet.cell_value(header_row, col)) for col in range(sheet.ncols)]
+        start_row = header_row + 1
         for row_index in range(start_row, sheet.nrows):
-            values = [clean(sheet.cell_value(row_index, col)) for col in range(sheet.ncols)]
+            raw_values = [sheet.cell_value(row_index, col) for col in range(sheet.ncols)]
+            values = [clean(value) for value in raw_values]
             if len(values) < 3:
                 continue
 
             school, raw_college, mentor_name = values[0], values[1], values[2]
-            if not school or not raw_college or not mentor_name or not allowed_school(school) or not allowed_college(raw_college):
+            if not school or not raw_college or not mentor_name or not allowed_school(school) or not allowed_college(school, raw_college):
                 continue
             college = canonical_college_name(school, raw_college)
 
@@ -289,6 +402,7 @@ def build_generated_data(source: Path) -> tuple[list[dict], list[dict], dict]:
             school_college_key = (school, normalize_key(college))
             mentor_key = (school, normalize_key(college), normalize_key(mentor_name))
             rating = rating_from_row(sheet.name, values)
+            evaluation_entry = row_evaluation_entry(sheet.name, headers, raw_values, rating, keywords)
 
             stats["sheets"][sheet.name] += 1
             stats["schools"][school] += 1
@@ -325,6 +439,8 @@ def build_generated_data(source: Path) -> tuple[list[dict], list[dict], dict]:
                     "recordCount": 0,
                     "sourceSheets": Counter(),
                     "ratings": [],
+                    "evaluationEntries": [],
+                    "entrySignatures": set(),
                 },
             )
             mentor_bucket["keywords"].update(keywords)
@@ -332,6 +448,11 @@ def build_generated_data(source: Path) -> tuple[list[dict], list[dict], dict]:
             mentor_bucket["sourceSheets"][sheet.name] += 1
             if rating is not None:
                 mentor_bucket["ratings"].append(rating)
+            if evaluation_entry:
+                signature = evaluation_entry_signature(evaluation_entry)
+                if signature not in mentor_bucket["entrySignatures"]:
+                    mentor_bucket["entrySignatures"].add(signature)
+                    mentor_bucket["evaluationEntries"].append(evaluation_entry)
 
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     generated_colleges = []
@@ -358,7 +479,7 @@ def build_generated_data(source: Path) -> tuple[list[dict], list[dict], dict]:
                 "deadline": "",
                 "courses": "命中关键词：" + "、".join(keywords[:12]),
                 "reviewMaterials": f"筛选范围：985 / 中科院 / 南科大；记录 {bucket['recordCount']} 条，导师 {len(bucket['mentorNames'])} 位。",
-                "notes": "仅展示关键词、评分和来源聚合；不展示原始评价全文。"
+                "notes": "展示关键词、评分、来源分布和原始评价内容。"
                 + (f" 平均评分 {average_rating}。" if average_rating is not None else ""),
                 "relatedLink": "",
                 "source": GENERATED_SOURCE,
@@ -387,13 +508,14 @@ def build_generated_data(source: Path) -> tuple[list[dict], list[dict], dict]:
                 "title": f"评分 {average_rating}" if average_rating is not None else "评分暂无",
                 "direction": "命中关键词：" + "、".join(keywords[:12]),
                 "journals": f"评价记录：{bucket['recordCount']} 条；来源：{sheet_text}",
-                "profile": "来自 2025 年导师评价表的关键词聚合结果，已按 985 / 中科院 / 南科大筛选；页面不展示原始评价全文。",
+                "profile": "来自 2025 年导师评价表，已按 985 / 中科院 / 南科大和机器人相关学院/关键词筛选。",
                 "source": GENERATED_SOURCE,
                 "sourceYear": 2025,
                 "keywords": keywords,
                 "recordCount": bucket["recordCount"],
                 "averageRating": average_rating,
                 "sourceSheets": dict(bucket["sourceSheets"]),
+                "evaluationEntries": bucket["evaluationEntries"],
                 "createdAt": now,
                 "updatedAt": now,
             }

@@ -574,6 +574,111 @@ summary.mentor-head::before {
   font-size: 14px;
 }
 
+.evaluation-dashboard {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric-card {
+  min-width: 0;
+  border: 1px solid #dbe4ef;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f8fafc;
+}
+
+.metric-card span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.metric-card strong {
+  font-size: 18px;
+}
+
+.source-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #d1d8e3;
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #ffffff;
+  font-size: 12px;
+}
+
+.source-chip span {
+  color: var(--muted);
+}
+
+.evaluation-feed {
+  display: grid;
+  gap: 10px;
+}
+
+.subsection-title,
+.evaluation-entry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.subsection-title span,
+.evaluation-entry-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.evaluation-entry {
+  min-width: 0;
+  border: 1px solid #dbe4ef;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfe;
+}
+
+.evaluation-section-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.evaluation-section {
+  display: grid;
+  gap: 4px;
+  border-left: 3px solid #64748b;
+  padding-left: 10px;
+}
+
+.evaluation-section-label {
+  color: #344054;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.evaluation-section-text,
+.evaluation-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.6;
+}
+
+.compact-tags {
+  margin: 8px 0 0;
+}
+
 .student-list {
   display: grid;
   gap: 8px;
@@ -699,6 +804,10 @@ label {
   }
 
   .info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .evaluation-dashboard {
     grid-template-columns: 1fr;
   }
 

@@ -9,6 +9,7 @@ const MAX_PORT_ATTEMPTS = 20;
 const IS_PUBLIC_RUNTIME = Boolean(process.env.RENDER || process.env.NODE_ENV === "production");
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || (IS_PUBLIC_RUNTIME ? "" : "admin123");
 const BUNDLED_DATA_FILE = path.join(__dirname, "data.json");
+const DIRECTORY_PROGRAM_TYPE = "学院目录";
 const DATA_FILE = process.env.DATA_FILE
   ? path.resolve(process.env.DATA_FILE)
   : path.join(process.env.DATA_DIR || __dirname, "data.json");
@@ -71,7 +72,7 @@ function normalizeCollege(college) {
   const campName = college?.campName || "";
   return {
     ...college,
-    programType: college?.programType || (campName.includes("预推免") ? "预推免" : "夏令营")
+    programType: college?.programType || (campName ? (campName.includes("预推免") ? "预推免" : "夏令营") : DIRECTORY_PROGRAM_TYPE)
   };
 }
 
@@ -302,13 +303,14 @@ app.post("/api/colleges", async (req, res, next) => {
   try {
     const data = await readData();
     const now = new Date().toISOString();
+    const programType = optionalString(req.body.programType) || DIRECTORY_PROGRAM_TYPE;
     const college = {
       id: id("college"),
       school: requiredString(req.body.school, "学校"),
       college: requiredString(req.body.college, "学院"),
-      programType: optionalString(req.body.programType) || "夏令营",
-      campName: requiredString(req.body.campName, "夏令营名称"),
-      deadline: requiredString(req.body.deadline, "截止时间"),
+      programType,
+      campName: optionalString(req.body.campName),
+      deadline: optionalString(req.body.deadline),
       courses: optionalString(req.body.courses),
       reviewMaterials: optionalString(req.body.reviewMaterials),
       notes: optionalString(req.body.notes),
@@ -332,9 +334,9 @@ app.put("/api/colleges/:collegeId", requireAdmin, async (req, res, next) => {
 
     college.school = requiredString(req.body.school, "学校");
     college.college = requiredString(req.body.college, "学院");
-    college.programType = optionalString(req.body.programType) || college.programType || "夏令营";
-    college.campName = requiredString(req.body.campName, "夏令营名称");
-    college.deadline = requiredString(req.body.deadline, "截止时间");
+    college.programType = optionalString(req.body.programType) || college.programType || DIRECTORY_PROGRAM_TYPE;
+    college.campName = optionalString(req.body.campName);
+    college.deadline = optionalString(req.body.deadline);
     college.courses = optionalString(req.body.courses);
     college.reviewMaterials = optionalString(req.body.reviewMaterials);
     college.notes = optionalString(req.body.notes);

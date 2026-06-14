@@ -78,20 +78,21 @@
           <button class="icon-button" type="button" data-close-modal="collegeModal" aria-label="关闭">×</button>
         </div>
         <input type="hidden" name="collegeId" />
+        <input type="hidden" name="recordMode" />
         <label>学校<input name="school" required placeholder="例如：重庆大学" /></label>
         <label>学院<input name="college" required placeholder="例如：机械与运载工程学院" /></label>
-        <label>类型
-          <select name="programType" required>
+        <label class="notice-only">类型
+          <select name="programType">
             <option value="夏令营">夏令营</option>
             <option value="预推免">预推免</option>
           </select>
         </label>
-        <label>项目名称<input name="campName" required placeholder="优秀大学生夏令营 / 预推免招生" /></label>
-        <label>截止时间<input name="deadline" required type="date" /></label>
-        <label>专业课<textarea name="courses" rows="2" placeholder="机械设计、自动控制原理"></textarea></label>
-        <label>面试复习资料<textarea name="reviewMaterials" rows="2" placeholder="资料链接、题库、经验贴"></textarea></label>
-        <label>相关链接<input name="relatedLink" type="url" placeholder="https://example.edu/notice.htm" /></label>
-        <label>备注<textarea name="notes" rows="2" placeholder="官网链接或补充说明"></textarea></label>
+        <label class="notice-only">项目名称<input name="campName" placeholder="优秀大学生夏令营 / 预推免招生" /></label>
+        <label class="notice-only">截止时间<input name="deadline" type="date" /></label>
+        <label class="notice-only">专业课<textarea name="courses" rows="2" placeholder="机械设计、自动控制原理"></textarea></label>
+        <label class="notice-only">面试复习资料<textarea name="reviewMaterials" rows="2" placeholder="资料链接、题库、经验贴"></textarea></label>
+        <label class="notice-only">相关链接<input name="relatedLink" type="url" placeholder="https://example.edu/notice.htm" /></label>
+        <label class="notice-only">备注<textarea name="notes" rows="2" placeholder="官网链接或补充说明"></textarea></label>
         <button class="primary-button" id="collegeSubmitButton" type="submit">保存学院</button>
       </form>
     </dialog>
